@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/jadmadi/dojo/main/.well-known/agent-skills/skills-manifest.schema.json",
+  "title": "Dojo Portable Skills Manifest (skills.json)",
+  "type": "object",
+  "required": ["version", "skills"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": { "type": "string", "default": "1.0.0" },
+    "harnesses": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["agents", "antigravity", "gemini", "claude", "cursor", "windsurf", "opencode", "sila"]
+      }
+    },
+    "catalogs": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "skills": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" },
+          "catalog": { "type": "string" },
+          "repo": { "type": "string" },
+          "ref": { "type": "string" },
+          "version": { "type": "string" }
+        }
+      }
+    }
+  }
+}

@@ -5,10 +5,10 @@
       "name": "dojo",
       "type": "skill-md",
       "category": "agents",
-      "tags": ["dojo", "skills", "mcp", "sila", "sync", "toc", "doctor", "gateway"],
-      "description": "The Agent Skills Training Ground, Native MCP Gateway, and Multi-Harness Continuity Engine. Discover skills with hybrid search, inspect section TOCs, JIT-load individual #sections, resolve skill dependency graphs, sync skills across Claude/Cursor/Windsurf/Gemini/OpenCode/Sila, and audit skills with dojo doctor.",
+      "tags": ["dojo", "skills", "mcp", "antigravity", "sila", "sync", "profile", "toc", "doctor", "gateway"],
+      "description": "The Agent Skills Training Ground, Native MCP Gateway, and Multi-Harness Continuity Engine. Discover skills with hybrid search, inspect section TOCs, JIT-load individual #sections, resolve skill dependency graphs, bi-directionally sync skills across Antigravity/Claude/Cursor/Windsurf/OpenCode/Sila, manage portable skills.json manifests, and audit skills with dojo doctor.",
       "url": "https://raw.githubusercontent.com/jadmadi/dojo/main/skills/dojo/SKILL.md",
-      "digest": "sha256:bebf45decb2553199802f5a3cc21e9836dbc4d1b989fabab44940636fe694722"
+      "digest": "sha256:b25df874067ae3dd48b5aaebff71879729bc6d9a153a29d0433c47d19433e2e5"
     },
     {
       "name": "kungfu",

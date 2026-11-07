@@ -2,6 +2,14 @@
 
 This backlog tracks roadmap items and completed releases for `dojo` (`github.com/jadmadi/dojo`, evolved from `kungfu`).
 
+## Completed (`v1.1.0` — Bi-Directional Continuity, Traveling `skills.json`, Workspace Init & Shell Completions)
+
+- [x] **Bi-Directional Cross-Harness Reconciliation (`dojo sync` / `dojo sila`)**: Added `ReconcileHarnesses` and `ConvertFromCursorMDC` (`internal/harness/sync.go`) so skills created or edited directly inside `.gemini/skills` (Antigravity), `.antigravity/skills`, `.claude/skills`, `.cursor/rules/*.mdc`, `.windsurf/rules/*.md`, `.opencode/skills`, or `.sila/skills` are reconciled back into canonical `.agents/skills/<name>/SKILL.md` before projecting across all harnesses (with `--one-way` to opt out).
+- [x] **Traveling `skills.json` & Git-Backed Profile (`dojo profile export|apply|sync`)**: Added `internal/profile` and `dojo profile` to export, apply (from local path, HTTP URL, or `github:owner/repo`), and sync declarative `skills.json` manifests across local laptops and cloud VMs (`agy-vm`).
+- [x] **One-Command Workspace Onboarding (`dojo init --workspace` / `-w`)**: Auto-detects active harnesses, reconciles existing skills into `.agents/skills/`, applies or generates `skills.json`, and wires projections in one command.
+- [x] **Dynamic Shell Completions (`dojo completion` & `dojo __complete`)**: Added tab-completion scripts for `bash`, `zsh`, `fish`, and `powershell` with live completion for skill names, `#<section>` slugs, subcommands, flags, and `--target` harnesses.
+- [x] **Cross-OS Installer & Release Automation (`scripts/install.sh` & `.goreleaser.yaml`)**: Added one-line POSIX installer for Linux/macOS/`agy-vm` and multi-OS static build configuration (`linux`, `darwin`, `windows` across `amd64` and `arm64`).
+
 ## Completed (`v1.0.0` — The 7-Pillar Dojo Release)
 
 - [x] **Rebrand & Backward Compatibility**: Renamed module to `github.com/jadmadi/dojo` and binary to `dojo` (`cmd/dojo`), with automatic fallback to `~/.config/kungfu`, `~/.cache/kungfu`, and `KUNGFU_*` environment variables.

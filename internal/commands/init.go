@@ -15,22 +15,29 @@
 package commands
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/jadmadi/dojo/internal/harness"
+	"github.com/jadmadi/dojo/internal/profile"
+	"github.com/jadmadi/dojo/internal/state"
 )
 
 // RunInit scaffolds a new Agent Skill package with compliant SKILL.md frontmatter,
-// scripts/, references/, and evals/evals.json.
+// or initializes a multi-harness workspace (--workspace / -w).
 func (a *App) RunInit(args []string) int {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	fs.SetOutput(a.Stderr)
 	var dirFlag, categoryFlag, descFlag string
-	var forceFlag, jsonFlag, rawFlag bool
+	var workspaceFlag, forceFlag, jsonFlag, rawFlag bool
 
+	fs.BoolVar(&workspaceFlag, "workspace", false, "Initialize current project workspace (.agents/skills, skills.json, and IDE harness projections)")
+	fs.BoolVar(&workspaceFlag, "w", false, "Initialize current project workspace (shorthand)")
 	fs.StringVar(&dirFlag, "dir", "", "Target parent directory (default: .agents/skills)")
 	fs.StringVar(&dirFlag, "d", "", "Target parent directory (shorthand)")
 	fs.StringVar(&categoryFlag, "category", "coding", "Skill category")
@@ -45,8 +52,11 @@ func (a *App) RunInit(args []string) int {
 	if err != nil {
 		return ExitUsage
 	}
+	if workspaceFlag || (len(posArgs) == 1 && posArgs[0] == "workspace") {
+		return a.runWorkspaceInit(dirFlag, jsonFlag, rawFlag)
+	}
 	if len(posArgs) == 0 {
-		_, _ = fmt.Fprintln(a.Stderr, "error: init requires a skill name (e.g. 'dojo init my-skill')")
+		_, _ = fmt.Fprintln(a.Stderr, "error: init requires a skill name (e.g. 'dojo init my-skill') or --workspace")
 		return ExitUsage
 	}
 
@@ -177,3 +187,81 @@ metadata:
 	}
 	return ExitSuccess
 }
+
+func (a *App) runWorkspaceInit(dirFlag string, jsonFlag, rawFlag bool) int {
+	wsDir := dirFlag
+	if wsDir == "" {
+		wd, err := os.Getwd()
+		if err != nil {
+			_, _ = fmt.Fprintf(a.Stderr, "error: resolving workspace directory: %v\n", err)
+			return ExitGeneral
+		}
+		wsDir = wd
+	}
+
+	canonicalDir := filepath.Join(wsDir, ".agents", "skills")
+	if err := os.MkdirAll(canonicalDir, 0755); err != nil {
+		_, _ = fmt.Fprintf(a.Stderr, "error: creating %s: %v\n", canonicalDir, err)
+		return ExitGeneral
+	}
+
+	// 1. Reconcile any existing rules/skills from active harnesses into .agents/skills
+	reconciled := harness.ReconcileHarnesses(wsDir)
+
+	// 2. If skills.json already exists in the workspace, apply it automatically
+	manifestPath := filepath.Join(wsDir, profile.DefaultManifestFilename)
+	var appliedSkills []string
+	var projections []harness.ProjectionResult
+	projections = append(projections, reconciled...)
+
+	if existingManifest, err := profile.LoadManifest(context.Background(), manifestPath, a.getHTTPClient()); err == nil && existingManifest != nil {
+		installed, proj, _ := a.applySkillsManifest(existingManifest, false)
+		appliedSkills = append(appliedSkills, installed...)
+		projections = append(projections, proj...)
+	}
+
+	// 3. Detect active harnesses and export/update skills.json
+	targets := harness.DetectTargets(wsDir)
+	st := a.loadState()
+	manifest := profile.BuildManifest(st, state.ScopeWorkspace, wsDir, targets)
+	if err := profile.SaveManifest(manifestPath, manifest); err != nil {
+		_, _ = fmt.Fprintf(a.Stderr, "error: writing %s: %v\n", manifestPath, err)
+		return ExitGeneral
+	}
+
+	// 4. Ensure all discovered canonical skills are projected across detected harnesses
+	discovered := harness.DiscoverInstalledSkillDirs(wsDir)
+	for name, dir := range discovered {
+		projections = append(projections, harness.SyncSkill(name, dir, wsDir, targets)...)
+	}
+
+	mode := a.resolveMode(jsonFlag, rawFlag)
+	switch mode {
+	case OutputModeJSON:
+		enc := json.NewEncoder(a.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(map[string]any{
+			"status":         "workspace_initialized",
+			"workspace":      wsDir,
+			"canonical_dir":  canonicalDir,
+			"manifest_path":  manifestPath,
+			"harnesses":      manifest.Harnesses,
+			"skills":         len(manifest.Skills),
+			"applied_skills": appliedSkills,
+			"projections":    len(projections),
+		})
+	case OutputModeRaw:
+		_, _ = fmt.Fprintf(a.Stdout, "workspace_initialized\t%s\t%s\t%d\n",
+			sanitizeTSVField(wsDir),
+			sanitizeTSVField(manifestPath),
+			len(manifest.Skills),
+		)
+	default:
+		_, _ = fmt.Fprintf(a.Stdout, "✓ Initialized Dojo workspace in %s\n", wsDir)
+		_, _ = fmt.Fprintf(a.Stdout, "  • Canonical store: %s\n", canonicalDir)
+		_, _ = fmt.Fprintf(a.Stdout, "  • Traveling manifest: %s (%d skills)\n", manifestPath, len(manifest.Skills))
+		_, _ = fmt.Fprintf(a.Stdout, "  • Active harnesses: %s\n", strings.Join(manifest.Harnesses, ", "))
+	}
+	return ExitSuccess
+}
+

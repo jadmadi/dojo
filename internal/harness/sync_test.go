@@ -105,3 +105,50 @@ Always run tests with race detector.
 		}
 	}
 }
+
+func TestReconcileHarnesses_BiDirectional(t *testing.T) {
+	root := t.TempDir()
+
+	// 1. Create a brand new skill inside .gemini/skills/antigravity-authored/SKILL.md
+	agySkillDir := filepath.Join(root, ".gemini", "skills", "antigravity-authored")
+	if err := os.MkdirAll(agySkillDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	agyContent := "---\nname: antigravity-authored\ndescription: Authored directly in Antigravity\n---\n\n# Antigravity Authored\n\nUse dojo sila.\n"
+	if err := os.WriteFile(filepath.Join(agySkillDir, "SKILL.md"), []byte(agyContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 2. Create a Cursor rule .cursor/rules/cursor-authored.mdc
+	cursorRulesDir := filepath.Join(root, ".cursor", "rules")
+	if err := os.MkdirAll(cursorRulesDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	mdcContent := "---\ndescription: \"Rule created in Cursor\"\nglobs:\nalwaysApply: false\n---\n\n# Cursor Rule\n\nFollow strict Go linting.\n"
+	if err := os.WriteFile(filepath.Join(cursorRulesDir, "cursor-authored.mdc"), []byte(mdcContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	reconciled := ReconcileHarnesses(root)
+	if len(reconciled) != 2 {
+		t.Fatalf("expected 2 reconciled skills, got %d: %+v", len(reconciled), reconciled)
+	}
+
+	// Verify both exist in canonical .agents/skills/
+	canonAgy, err := os.ReadFile(filepath.Join(root, ".agents", "skills", "antigravity-authored", "SKILL.md"))
+	if err != nil {
+		t.Fatalf("expected canonical antigravity-authored SKILL.md: %v", err)
+	}
+	if !strings.Contains(string(canonAgy), "# Antigravity Authored") {
+		t.Errorf("unexpected canonical antigravity-authored content: %s", string(canonAgy))
+	}
+
+	canonCursor, err := os.ReadFile(filepath.Join(root, ".agents", "skills", "cursor-authored", "SKILL.md"))
+	if err != nil {
+		t.Fatalf("expected canonical cursor-authored SKILL.md: %v", err)
+	}
+	if !strings.Contains(string(canonCursor), "name: cursor-authored") || !strings.Contains(string(canonCursor), "# Cursor Rule") {
+		t.Errorf("unexpected reverse-transpiled SKILL.md from .mdc:\n%s", string(canonCursor))
+	}
+}
+

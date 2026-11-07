@@ -40,6 +40,9 @@ func (a *App) RunSync(args []string) int {
 	fs.BoolVar(&jsonFlag, "json", false, "Output in JSON format")
 	fs.BoolVar(&rawFlag, "raw", false, "Output in raw tab-separated format")
 
+	var oneWayFlag bool
+	fs.BoolVar(&oneWayFlag, "one-way", false, "Only project from .agents/skills without importing/reconciling edits from harness directories")
+
 	posArgs, err := parseFlagsWithArgs(fs, args)
 	if err != nil {
 		return ExitUsage
@@ -67,6 +70,12 @@ func (a *App) RunSync(args []string) int {
 		targets = harness.DetectTargets(baseDir)
 	}
 
+	var allResults []harness.ProjectionResult
+	if !oneWayFlag {
+		reconciled := harness.ReconcileHarnesses(baseDir)
+		allResults = append(allResults, reconciled...)
+	}
+
 	discovered := harness.DiscoverInstalledSkillDirs(baseDir)
 	var skillNames []string
 	if len(posArgs) > 0 {
@@ -88,7 +97,7 @@ func (a *App) RunSync(args []string) int {
 		}
 	}
 
-	if len(skillNames) == 0 {
+	if len(skillNames) == 0 && len(allResults) == 0 {
 		switch mode {
 		case OutputModeJSON:
 			_ = json.NewEncoder(a.Stdout).Encode([]any{})
@@ -99,7 +108,6 @@ func (a *App) RunSync(args []string) int {
 		return ExitSuccess
 	}
 
-	var allResults []harness.ProjectionResult
 	hasError := false
 	for _, name := range skillNames {
 		res := harness.SyncSkill(name, discovered[name], baseDir, targets)

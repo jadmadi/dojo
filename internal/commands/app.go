@@ -569,12 +569,13 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	switch cmdName {
 	case "list", "ls", "find", "search", "show", "info", "load", "get", "toc",
 		"learn", "install", "add", "forget", "unlearn", "update", "upgrade", "self-update",
-		"sync", "sila", "init", "scaffold", "doctor", "lint", "audit", "mcp", "serve",
+		"sync", "sila", "profile", "init", "scaffold", "doctor", "lint", "audit", "mcp", "serve",
+		"completion", "__complete",
 		"status", "catalog", "catalogs", "telemetry", "run", "exec":
 	default:
 		validCommands := []string{
-			"list", "find", "show", "toc", "load", "learn", "sync", "sila", "init", "doctor", "mcp",
-			"forget", "update", "upgrade", "status", "catalog", "telemetry", "run", "version", "help",
+			"list", "find", "show", "toc", "load", "learn", "sync", "sila", "profile", "init", "doctor", "mcp",
+			"completion", "forget", "update", "upgrade", "status", "catalog", "telemetry", "run", "version", "help",
 		}
 		_, _ = fmt.Fprintf(stderr, "error: unknown command %q.\n", cmdName)
 		suggs := search.Suggest(cmdName, validCommands, 2)
@@ -588,10 +589,31 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return ExitUsage
 	}
 
+	if cmdName == "completion" {
+		app := &App{Stdout: stdout, Stderr: stderr, Options: opts}
+		return app.RunCompletion(cmdArgs)
+	}
+
 	app, err := NewApp(opts, stdout, stderr)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "error: %v\n", err)
-		return MapErrorToExitCode(err)
+		// Allow local/offline commands to run with local discovery only if remote catalog is unreachable
+		switch cmdName {
+		case "init", "scaffold", "sync", "sila", "doctor", "lint", "audit", "profile", "__complete", "upgrade", "self-update":
+			localCat, _ := catalog.NewCatalog(catalog.WithRemoteDisabled(), catalog.WithLocalDiscovery(true))
+			cfg, _ := config.Load("")
+			app = &App{
+				Store:      localCat,
+				Searcher:   search.NewEngine(),
+				Stdout:     stdout,
+				Stderr:     stderr,
+				Options:    opts,
+				HTTPClient: &http.Client{Timeout: 30 * time.Second},
+				Config:     cfg,
+			}
+		default:
+			_, _ = fmt.Fprintf(stderr, "error: %v\n", err)
+			return MapErrorToExitCode(err)
+		}
 	}
 
 	switch cmdName {
@@ -609,12 +631,16 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return app.RunLearn(cmdArgs)
 	case "sync", "sila":
 		return app.RunSync(cmdArgs)
+	case "profile":
+		return app.RunProfile(cmdArgs)
 	case "init", "scaffold":
 		return app.RunInit(cmdArgs)
 	case "doctor", "lint", "audit":
 		return app.RunDoctor(cmdArgs)
 	case "mcp", "serve":
 		return app.RunMCP(cmdArgs)
+	case "__complete":
+		return app.RunComplete(cmdArgs)
 	case "forget", "unlearn":
 		return app.RunForget(cmdArgs)
 	case "update":
@@ -638,7 +664,8 @@ func isSubcommandName(name string) bool {
 	switch name {
 	case "list", "ls", "find", "search", "show", "info", "load", "get", "toc",
 		"learn", "install", "add", "forget", "unlearn", "update", "upgrade", "self-update",
-		"sync", "sila", "init", "scaffold", "doctor", "lint", "audit", "mcp", "serve",
+		"sync", "sila", "profile", "init", "scaffold", "doctor", "lint", "audit", "mcp", "serve",
+		"completion", "__complete",
 		"status", "catalog", "catalogs", "telemetry", "run", "exec", "version", "help":
 		return true
 	default:
@@ -750,28 +777,64 @@ FLAGS:
   dojo sync [skill...] [flags]
   dojo sila [skill...] [flags]
 
-Project and synchronize installed skills across AI coding agent harnesses
+Bi-directionally reconcile and project installed skills across AI coding agent harnesses
 (.claude/skills, .cursor/rules/*.mdc, .windsurf/rules/*.md, .gemini/skills or .antigravity/skills [Antigravity Desktop & CLI], .opencode/skills, .sila/skills).
 
 FLAGS:
   -t, --target <targets>  Comma-separated harness targets (default: auto-detected or all)
   -g, --global            Sync global skills across global harness directories
+      --one-way           Skip reverse-reconciling harness edits back into .agents/skills
       --json              Output in JSON format
       --raw               Output in raw tab-separated format`)
 		return true
 	case "init", "scaffold":
 		_, _ = fmt.Fprintln(w, `USAGE:
+  dojo init --workspace [flags]
   dojo init <skill-name> [flags]
 
-Scaffold a new Agent Skill package with compliant SKILL.md, scripts/, references/, and evals/.
+Initialize a workspace for multi-harness skill continuity (--workspace / -w) or scaffold a new Agent Skill package.
 
 FLAGS:
-  -d, --dir <path>          Parent directory (default: .agents/skills)
+  -w, --workspace           Initialize workspace (.agents/skills, skills.json, and active harness projections)
+  -t, --target <targets>    Comma-separated harness targets for --workspace (default: auto-detected)
+  -d, --dir <path>          Parent directory when scaffolding a skill (default: .agents/skills)
   -c, --category <cat>      Skill category (default: coding)
       --description <desc>  Skill description
   -f, --force               Overwrite existing skill files
       --json                Output in JSON format
       --raw                 Output in raw tab-separated format`)
+		return true
+	case "profile", "manifest":
+		_, _ = fmt.Fprintln(w, `USAGE:
+  dojo profile <export|apply|sync> [source] [flags]
+
+Manage portable skills.json manifests for local<->cloud VM and team skill continuity.
+
+SUBCOMMANDS:
+  export [-f <file>] [-g] [--target <targets>]
+      Export currently installed skills and active harness targets to skills.json.
+  apply [source] [-f <file>] [-g] [--target <targets>]
+      Install catalogs, learn skills, and project harnesses declared in a local, HTTP, or github:owner/repo skills.json.
+  sync [source] [-f <file>] [-g] [--target <targets>]
+      Reconcile harness edits, apply skills.json, and update skills.json with newly discovered local skills.
+
+FLAGS:
+  -f, --file <source>     Path, URL, or github:owner/repo reference to skills.json (default: skills.json)
+  -g, --global            Operate on global scope (~/.agents/skills)
+  -t, --target <targets>  Override harness projection targets
+      --json              Output in JSON format
+      --raw               Output in raw tab-separated format`)
+		return true
+	case "completion", "completions":
+		_, _ = fmt.Fprintln(w, `USAGE:
+  dojo completion <bash|zsh|fish|powershell>
+
+Generate shell completion script for bash, zsh, fish, or powershell.
+
+EXAMPLES:
+  source <(dojo completion bash)
+  source <(dojo completion zsh)
+  dojo completion fish | source`)
 		return true
 	case "doctor", "lint", "audit":
 		_, _ = fmt.Fprintln(w, `USAGE:
@@ -921,42 +984,46 @@ USAGE:
   dojo [global flags] <command> [flags] [arguments...]
 
 COMMANDS:
-  find      <keywords...> [--limit <n>]
-            Search skills by keyword.
-  toc       <skill[/subpath]> [--local] [--json] [--raw]
-            Inspect Markdown section headings, #slugs, and byte budgets.
-  load      <skill[/subpath][#section]> [-s <slug>] [--with-deps] [-p <page>] [--full]
-            Stream skill instructions, specific #sections, or reference files to stdout.
-  run       <skill> <script> [args...]
-            Run a companion script bundled with a skill.
-  list      [--json] [--raw]
-            List available skills.
-  show      <skill...> [--json] [--raw]
-            Show skill metadata, references, and scripts.
-  learn     <skill...> [-g] [-f] [--load] [--with-deps] [--target <harnesses>]
-            Install skills to workspace or global scope.
-  sync      [skill...] [--target <all|claude,cursor,gemini,windsurf,opencode,sila>] [-g]
-            Synchronize installed skills across AI coding agent harnesses (alias: sila).
-  init      <skill-name> [--dir <path>] [--category <cat>]
-            Scaffold a new Agent Skill package with SKILL.md, scripts/, references/, and evals/.
-  doctor    [--skills] [--security] [-g] [--json]
-            Audit environment health, frontmatter, token budgets, and prompt-injection security.
-  mcp       [--print-schema]
-            Start the native Model Context Protocol (MCP) JSON-RPC 2.0 server over stdio.
-  status    [skill...] [-g] [--json] [--raw]
-            Show installed skills and usage history.
-  update    [skill...] [-g] [--all] [-y] [-f] [--refresh]
-            Synchronize catalogs and check for or apply skill updates.
-  upgrade   [--check] [--force]
-            Check for newer Dojo releases and self-upgrade the binary.
-  forget    <skill...> [-g] [-f] [--all]
-            Uninstall skills from workspace or global scope.
-  catalog   <add|list|remove> [source] [flags]
-            Manage external skill catalogs.
-  telemetry [status|enable|disable|sync] [--json] [--raw]
-            Manage opt-in anonymous community usage counters.
+  find       <keywords...> [--limit <n>]
+             Search skills with hybrid BM25 + RRF ranking.
+  toc        <skill[/subpath]> [--local] [--json] [--raw]
+             Inspect Markdown section headings, #slugs, and byte budgets.
+  load       <skill[/subpath][#section]> [-s <slug>] [--with-deps] [-p <page>] [--full]
+             Stream skill instructions, specific #sections, or reference files to stdout.
+  run        <skill> <script> [args...]
+             Run a companion script bundled with a skill.
+  list       [--json] [--raw]
+             List available skills.
+  show       <skill...> [--json] [--raw]
+             Show skill metadata, references, and scripts.
+  learn      <skill...> [-g] [-f] [--load] [--with-deps] [--target <harnesses>]
+             Install skills to workspace or global scope.
+  sync       [skill...] [--target <all|claude,cursor,antigravity,windsurf,opencode,sila>] [-g] [--one-way]
+             Bi-directionally reconcile and project skills across agent harnesses (alias: sila).
+  profile    <export|apply|sync> [source] [-f <file>] [-g] [--target <harnesses>]
+             Export, apply, or sync portable skills.json manifests (local, HTTP, or github:owner/repo).
+  init       [--workspace | <skill-name>] [--dir <path>] [--category <cat>]
+             Initialize a multi-harness workspace (--workspace / -w) or scaffold a new Agent Skill package.
+  doctor     [--skills] [--security] [-g] [--json]
+             Audit environment health, frontmatter, token budgets, and prompt-injection security.
+  mcp        [--print-schema]
+             Start the native Model Context Protocol (MCP) JSON-RPC 2.0 server over stdio.
+  completion <bash|zsh|fish|powershell>
+             Generate shell tab-completion scripts.
+  status     [skill...] [-g] [--json] [--raw]
+             Show installed skills and usage history.
+  update     [skill...] [-g] [--all] [-y] [-f] [--refresh]
+             Synchronize catalogs and check for or apply skill updates.
+  upgrade    [--check] [--force]
+             Check for newer Dojo releases and self-upgrade the binary.
+  forget     <skill...> [-g] [-f] [--all]
+             Uninstall skills from workspace or global scope.
+  catalog    <add|list|remove> [source] [flags]
+             Manage external skill catalogs.
+  telemetry  [status|enable|disable|sync] [--json] [--raw]
+             Manage opt-in anonymous community usage counters.
   version
-            Print dojo version.
+             Print dojo version.
 
 GLOBAL FLAGS:
   --json            Emit JSON output
