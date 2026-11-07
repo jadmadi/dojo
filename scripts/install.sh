@@ -62,3 +62,8 @@ else
 fi
 
 "$INSTALL_DIR/$BINARY" --version
+echo "==> Bootstrapping 'dojo' skill into global agent harnesses..."
+"$INSTALL_DIR/$BINARY" learn dojo -g -f >/dev/null 2>&1 || true
+"$INSTALL_DIR/$BINARY" sync -g >/dev/null 2>&1 || true
+echo "==> Done! Your local coding agents are now Dojo-enabled."
+
