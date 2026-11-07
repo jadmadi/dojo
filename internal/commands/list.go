@@ -93,12 +93,12 @@ func (a *App) RunList(args []string) int {
 		return ExitSuccess
 	default: // OutputModeHuman
 		_, _ = fmt.Fprintf(a.Stdout, "AVAILABLE SKILLS (%d total):\n\n", len(listings))
-		_, _ = fmt.Fprintf(a.Stdout, "%-22s %-14s %-12s %s\n", "NAME", "CATEGORY", "STATUS", "DESCRIPTION")
-		_, _ = fmt.Fprintf(a.Stdout, "%-22s %-14s %-12s %s\n", "----------------------", "--------------", "------------", "--------------------------------------------------")
-		for _, l := range listings {
+		_, _ = fmt.Fprintf(a.Stdout, "%-4s %-22s %-14s %-12s %s\n", "#", "NAME", "CATEGORY", "STATUS", "DESCRIPTION")
+		_, _ = fmt.Fprintf(a.Stdout, "%-4s %-22s %-14s %-12s %s\n", "---", "----------------------", "--------------", "------------", "--------------------------------------------------")
+		for idx, l := range listings {
 			statusBadge := "[" + l.Status + "]"
-			desc := truncateRunes(l.Description, 60)
-			_, _ = fmt.Fprintf(a.Stdout, "%-22s %-14s %-12s %s\n", l.Name, l.Category, statusBadge, desc)
+			desc := truncateRunes(l.Description, 56)
+			_, _ = fmt.Fprintf(a.Stdout, "%-4d %-22s %-14s %-12s %s\n", idx+1, l.Name, l.Category, statusBadge, desc)
 		}
 		return ExitSuccess
 	}

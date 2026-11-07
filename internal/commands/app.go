@@ -25,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -309,6 +310,78 @@ func resolveScopeAndDir(globalFlag bool) (string, string) {
 	wsDir, _ := os.Getwd()
 	return state.ScopeWorkspace, wsDir
 }
+
+// resolveSkillSpecs parses and resolves a list of skill/rule/command specifications,
+// expanding comma-separated lists (e.g. "1,4,6,888,3" or "skillA,skillB") and
+// translating 1-based numeric list indices (referencing `dojo list`) into canonical skill names.
+func (a *App) resolveSkillSpecs(specs []string) []string {
+	var tokens []string
+	for _, s := range specs {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		for _, part := range strings.Split(s, ",") {
+			part = strings.TrimSpace(part)
+			if part != "" {
+				tokens = append(tokens, part)
+			}
+		}
+	}
+
+	if len(tokens) == 0 {
+		return nil
+	}
+
+	hasNumeric := false
+	for _, tok := range tokens {
+		if _, err := strconv.Atoi(tok); err == nil {
+			hasNumeric = true
+			break
+		}
+	}
+
+	var orderedCatalog []catalog.Item
+	if hasNumeric && a.Store != nil {
+		orderedCatalog = a.Store.All()
+		sort.Slice(orderedCatalog, func(i, j int) bool {
+			return orderedCatalog[i].Name < orderedCatalog[j].Name
+		})
+	}
+
+	seen := make(map[string]bool)
+	var resolved []string
+
+	for _, tok := range tokens {
+		if idx, err := strconv.Atoi(tok); err == nil && idx > 0 {
+			if len(orderedCatalog) > 0 {
+				if idx <= len(orderedCatalog) {
+					name := orderedCatalog[idx-1].Name
+					if !seen[name] {
+						seen[name] = true
+						resolved = append(resolved, name)
+					}
+				} else {
+					_, _ = fmt.Fprintf(a.Stderr, "warning: list index %d is out of range (1-%d); skipping\n", idx, len(orderedCatalog))
+				}
+			} else {
+				if !seen[tok] {
+					seen[tok] = true
+					resolved = append(resolved, tok)
+				}
+			}
+			continue
+		}
+
+		if !seen[tok] {
+			seen[tok] = true
+			resolved = append(resolved, tok)
+		}
+	}
+
+	return resolved
+}
+
 
 func (a *App) resolveDefaultCatalogURL() string {
 	catURL := config.DefaultCatalogURL

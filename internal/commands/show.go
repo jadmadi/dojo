@@ -73,6 +73,7 @@ func (a *App) RunShow(args []string) int {
 
 	mode := a.resolveMode(jsonFlag, rawFlag)
 
+	posArgs = a.resolveSkillSpecs(posArgs)
 	if len(posArgs) == 0 {
 		_, _ = fmt.Fprintln(a.Stderr, "error: show requires at least one skill name")
 		return ExitUsage

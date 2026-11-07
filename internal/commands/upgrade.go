@@ -196,6 +196,47 @@ func (a *App) performSelfUpgrade(ctx context.Context, rel githubRelease, targetV
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("go install failed: %v (%s)", err, strings.TrimSpace(string(out)))
 		}
+
+		gobin := os.Getenv("GOBIN")
+		if gobin == "" {
+			if out, gErr := exec.Command(goBin, "env", "GOBIN").Output(); gErr == nil && len(strings.TrimSpace(string(out))) > 0 {
+				gobin = strings.TrimSpace(string(out))
+			}
+		}
+		if gobin == "" {
+			gopath := os.Getenv("GOPATH")
+			if gopath == "" {
+				if out, gErr := exec.Command(goBin, "env", "GOPATH").Output(); gErr == nil && len(strings.TrimSpace(string(out))) > 0 {
+					gopath = strings.TrimSpace(string(out))
+				}
+			}
+			if gopath == "" {
+				home, _ := os.UserHomeDir()
+				gopath = filepath.Join(home, "go")
+			}
+			gobin = filepath.Join(gopath, "bin")
+		}
+		installedBin := filepath.Join(gobin, "dojo")
+		if runtime.GOOS == "windows" {
+			installedBin += ".exe"
+		}
+
+		if exePath, exeErr := os.Executable(); exeErr == nil && exePath != "" {
+			cleanExe, _ := filepath.EvalSymlinks(exePath)
+			cleanInstalled, _ := filepath.EvalSymlinks(installedBin)
+			if cleanExe != cleanInstalled {
+				if binData, rErr := os.ReadFile(installedBin); rErr == nil {
+					tmpPath := filepath.Join(filepath.Dir(cleanExe), ".dojo-upgrade.tmp")
+					if wErr := os.WriteFile(tmpPath, binData, 0755); wErr == nil {
+						if renErr := os.Rename(tmpPath, cleanExe); renErr == nil {
+							return nil
+						}
+						_ = os.Remove(tmpPath)
+					}
+				}
+				_, _ = fmt.Fprintf(a.Stdout, "Notice: upgraded binary installed to %s.\nIf your shell runs %s, update your PATH or run:\n  sudo cp %s %s && hash -r\n", installedBin, exePath, installedBin, exePath)
+			}
+		}
 		return nil
 	}
 

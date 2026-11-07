@@ -124,6 +124,7 @@ func (a *App) RunLoad(args []string) int {
 		return ExitUsage
 	}
 
+	posArgs = a.resolveSkillSpecs(posArgs)
 	mode := a.resolveMode(jsonFlag, rawFlag)
 
 	if len(posArgs) == 0 {

@@ -392,17 +392,18 @@ func (a *App) runProfilePush(args []string) int {
 	}
 
 	targetSpec := strings.TrimSpace(repoFlag)
-	var skillSpecs []string
+	var rawSpecs []string
 	if targetSpec == "" {
 		if len(posArgs) == 0 {
 			_, _ = fmt.Fprintln(a.Stderr, "error: profile push requires a target repository/directory and at least one skill/command name (or --all)\nusage: dojo profile push <github:owner/repo | dir> <skill-or-command...>")
 			return ExitUsage
 		}
 		targetSpec = posArgs[0]
-		skillSpecs = posArgs[1:]
+		rawSpecs = posArgs[1:]
 	} else {
-		skillSpecs = posArgs
+		rawSpecs = posArgs
 	}
+	skillSpecs := a.resolveSkillSpecs(rawSpecs)
 
 	wd, _ := os.Getwd()
 	homeDir, _ := os.UserHomeDir()
