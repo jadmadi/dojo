@@ -2,7 +2,7 @@
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/jadmadi/dojo.svg)](https://pkg.go.dev/github.com/jadmadi/dojo)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/badge/release-v1.1.2-green.svg)](https://github.com/jadmadi/dojo/releases)
+[![Release](https://img.shields.io/badge/release-v1.1.4-green.svg)](https://github.com/jadmadi/dojo/releases)
 
 `dojo` is a static Go command-line tool and Model Context Protocol (MCP) server for finding, streaming, auditing, and synchronizing **Agent Skills** (`SKILL.md`) across local workstations and cloud VMs (`agy-vm`). Coding agents can inspect a skill's Table of Contents (`dojo toc`), stream individual `#sections` (`dojo load <skill>#<section>`) to save 70–90% of context tokens, maintain a portable `skills.json` manifest (`dojo profile`), and bi-directionally reconcile and project skills across **Antigravity (Desktop & CLI)**, Claude Code, Cursor, Windsurf, OpenCode, and Sila (`dojo sila` / `dojo sync`).
 
@@ -51,7 +51,7 @@ Every `dojo` command supports human-readable terminal output by default, structu
 | `dojo completion <shell>` | Generate shell tab-completion scripts (`bash`, `zsh`, `fish`, `powershell`) | Dynamic skill, `#section`, and `--target` completions |
 | `dojo mcp` | Start the JSON-RPC 2.0 MCP server over `stdio` | `--print-schema` |
 | `dojo doctor` | Check environment health, YAML frontmatter, token budgets, and security rules | `--skills`, `--security`, `-g, --global`, `--json` |
-| `dojo list` / `dojo show` | List catalog skills or inspect a single skill's metadata and files | `--json`, `--raw` |
+| `dojo list` / `dojo show` | List catalog skills with numbered `#` indices or inspect metadata by name or number | `--json`, `--raw` |
 | `dojo status` / `dojo update` | Check installed skills for upstream drift and apply updates | `--all`, `-g, --global`, `-f, --force` |
 | `dojo catalog` | Manage federated skill catalogs (`list`, `add`, `remove`) | `-n, --name`, `-b, --ref`, `-p, --subpath` |
 | `dojo upgrade` | Check GitHub Releases for a newer `dojo` binary or upgrade in place | `-c, --check`, `-f, --force` |
@@ -107,7 +107,11 @@ When you tell your local coding agent **"I need `x` and `y` in my `agy-vm`"**, `
 
 ```bash
 # 1. On your local machine: push specific local skills, .mdc rules, or slash commands to your agy-vm repo
-dojo profile push github:jadmadi/agy-vm my-skill my-slash-command
+dojo profile push github:jadmadi/agy-vm my-skill my-slash-command -g
+
+#    Push by list numbers from 'dojo list' or comma-separated values:
+dojo list
+dojo profile push github:jadmadi/agy-vm 1,4,6 -g
 
 #    Or push from explicit file/directory paths:
 dojo profile push github:jadmadi/agy-vm ~/.claude/commands/deploy.md ~/.agents/skills/go-review
