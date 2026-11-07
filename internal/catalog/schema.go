@@ -63,8 +63,8 @@ type Item struct {
 	InstallCmd         string            `json:"install_command,omitempty" yaml:"install_command,omitempty"`
 	InstallCommand     string            `json:"installCommand,omitempty" yaml:"installCommand,omitempty"`
 	NpxInstallCommand  string            `json:"npxInstallCommand,omitempty" yaml:"npxInstallCommand,omitempty"`
-	KungfuLoadCommand  string            `json:"kungfuLoadCommand,omitempty" yaml:"kungfuLoadCommand,omitempty"`
-	KungfuLearnCommand string            `json:"kungfuLearnCommand,omitempty" yaml:"kungfuLearnCommand,omitempty"`
+	DojoLoadCommand    string            `json:"dojoLoadCommand,omitempty" yaml:"dojoLoadCommand,omitempty"`
+	DojoLearnCommand   string            `json:"dojoLearnCommand,omitempty" yaml:"dojoLearnCommand,omitempty"`
 	FreshnessScore     *int              `json:"freshnessScore,omitempty" yaml:"freshnessScore,omitempty"`
 	FreshnessTier      string            `json:"freshnessTier,omitempty" yaml:"freshnessTier,omitempty"`
 	FreshnessEmoji     string            `json:"freshnessEmoji,omitempty" yaml:"freshnessEmoji,omitempty"`
@@ -205,8 +205,8 @@ type Gateway struct {
 	Description    string `json:"description,omitempty" yaml:"description,omitempty"`
 	URL            string `json:"url,omitempty" yaml:"url,omitempty"`
 	InstallCommand string `json:"installCommand,omitempty" yaml:"installCommand,omitempty"`
-	KungfuLoad     string `json:"kungfuLoad,omitempty" yaml:"kungfuLoad,omitempty"`
-	KungfuLearn    string `json:"kungfuLearn,omitempty" yaml:"kungfuLearn,omitempty"`
+	DojoLoad       string `json:"dojoLoad,omitempty" yaml:"dojoLoad,omitempty"`
+	DojoLearn      string `json:"dojoLearn,omitempty" yaml:"dojoLearn,omitempty"`
 }
 
 // Frontmatter strictly reflects the official Agent Skills specification (agentskills.io).

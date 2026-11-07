@@ -31,7 +31,7 @@ import (
 func (a *App) RunCatalog(args []string) int {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" || args[0] == "help" {
 		_, _ = fmt.Fprintln(a.Stdout, `USAGE:
-  kungfu catalog <subcommand> [flags] [arguments...]
+  dojo catalog <subcommand> [flags] [arguments...]
 
 SUBCOMMANDS:
   add <source> [--name <name>] [--ref <ref>] [--subpath <path>] [--refresh] [--json] [--raw]
@@ -57,7 +57,7 @@ ALIASES:
 	case "remove", "rm", "delete":
 		return a.runCatalogRemove(subArgs)
 	default:
-		_, _ = fmt.Fprintf(a.Stderr, "error: unknown catalog subcommand %q. Run 'kungfu catalog --help' for usage.\n", subcmd)
+		_, _ = fmt.Fprintf(a.Stderr, "error: unknown catalog subcommand %q. Run 'dojo catalog --help' for usage.\n", subcmd)
 		return ExitUsage
 	}
 }
@@ -286,7 +286,7 @@ func (a *App) runCatalogList(args []string) int {
 			defSkills := 0
 			if all := a.Store.All(); len(all) > 0 {
 				for _, it := range all {
-					if it.Source == "remote" || it.Source == "" || strings.Contains(it.Source, "skills.danicat.dev") || it.Source == "default" {
+					if it.Source == "remote" || it.Source == "" || strings.Contains(it.Source, "jadmadi/dojo") || it.Source == "default" {
 						defSkills++
 					}
 				}

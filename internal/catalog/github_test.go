@@ -57,16 +57,16 @@ func TestParseGitHubTarget(t *testing.T) {
 			wantOK:      true,
 		},
 		{
-			input:       "https://github.com/danicat/skills/tree/dev/coding/godoctor",
-			wantOwner:   "danicat",
+			input:       "https://github.com/jadmadi/skills/tree/dev/coding/godoctor",
+			wantOwner:   "jadmadi",
 			wantRepo:    "skills",
 			wantRef:     "dev",
 			wantSubpath: "coding/godoctor",
 			wantOK:      true,
 		},
 		{
-			input:       "https://github.com/danicat/skills/blob/v1.0.0/coding/godoctor/SKILL.md",
-			wantOwner:   "danicat",
+			input:       "https://github.com/jadmadi/skills/blob/v1.0.0/coding/godoctor/SKILL.md",
+			wantOwner:   "jadmadi",
 			wantRepo:    "skills",
 			wantRef:     "v1.0.0",
 			wantSubpath: "coding/godoctor",
@@ -102,8 +102,8 @@ func TestParseGitHubTarget(t *testing.T) {
 			wantOK:      true,
 		},
 		{
-			input:       "https://raw.githubusercontent.com/danicat/skills/v1.0.0/coding/godoctor/SKILL.md",
-			wantOwner:   "danicat",
+			input:       "https://raw.githubusercontent.com/jadmadi/skills/v1.0.0/coding/godoctor/SKILL.md",
+			wantOwner:   "jadmadi",
 			wantRepo:    "skills",
 			wantRef:     "v1.0.0",
 			wantSubpath: "coding/godoctor",
@@ -581,14 +581,14 @@ func TestFetchGitHubCatalog_WellKnownAgentSkillsIndexJSON(t *testing.T) {
 	wellKnownJSON := `{
   "$schema": "https://schemas.agentskills.io/discovery/0.2.0/schema.json",
   "version": "1.0.0",
-  "name": "danicat/kungfu",
+  "name": "jadmadi/dojo",
   "skills": [
     {
-      "name": "kungfu",
+      "name": "dojo",
       "type": "skill-md",
-      "description": "KungFu CLI gateway",
-      "version": "0.6.0",
-      "url": "https://raw.githubusercontent.com/danicat/kungfu/main/skills/kungfu/SKILL.md",
+      "description": "Dojo CLI gateway",
+      "version": "1.3.0",
+      "url": "https://raw.githubusercontent.com/jadmadi/dojo/main/skills/dojo/SKILL.md",
       "digest": "sha256:808b8f76640610211c8b5d37927edaa0fd18e488b920efe795ddf088e3917423"
     }
   ]
@@ -612,8 +612,8 @@ func TestFetchGitHubCatalog_WellKnownAgentSkillsIndexJSON(t *testing.T) {
 	})
 
 	target := &GitHubTarget{
-		Owner: "danicat",
-		Repo:  "kungfu",
+		Owner: "jadmadi",
+		Repo:  "dojo",
 		Ref:   "main",
 	}
 
@@ -621,7 +621,7 @@ func TestFetchGitHubCatalog_WellKnownAgentSkillsIndexJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FetchGitHubCatalog .well-known/agent-skills/index.json failed: %v", err)
 	}
-	if len(m.Items) != 1 || m.Items[0].Name != "kungfu" || m.Items[0].Version != "0.6.0" {
+	if len(m.Items) != 1 || m.Items[0].Name != "dojo" || m.Items[0].Version != "1.3.0" {
 		t.Fatalf("unexpected items from well-known index.json: %+v", m.Items)
 	}
 }

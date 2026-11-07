@@ -48,7 +48,7 @@ func TestBuildCommitPayload_ClampsAndFormats(t *testing.T) {
 		},
 	}
 
-	req, applied := telemetry.BuildCommitPayload("danicat-dev", deltas)
+	req, applied := telemetry.BuildCommitPayload("dojo-skills", deltas)
 	if len(applied) != 1 {
 		t.Fatalf("expected 1 applied delta, got %d", len(applied))
 	}
@@ -59,7 +59,7 @@ func TestBuildCommitPayload_ClampsAndFormats(t *testing.T) {
 		t.Fatalf("expected 1 write operation, got %d", len(req.Writes))
 	}
 	w := req.Writes[0]
-	wantDoc := "projects/danicat-dev/databases/(default)/documents/skills/coding-godoctor"
+	wantDoc := "projects/dojo-skills/databases/(default)/documents/skills/coding-godoctor"
 	if w.Update.Name != wantDoc {
 		t.Errorf("expected doc name %q, got %q", wantDoc, w.Update.Name)
 	}
@@ -78,7 +78,7 @@ func TestClient_Flush(t *testing.T) {
 		case "/v1/accounts:signUp":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"idToken":"test-jwt-token","expiresIn":"3600"}`))
-		case "/v1/projects/danicat-dev/databases/(default)/documents:commit":
+		case "/v1/projects/dojo-skills/databases/(default)/documents:commit":
 			gotAuthHeader = r.Header.Get("Authorization")
 			if err := json.NewDecoder(r.Body).Decode(&gotCommit); err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
@@ -93,7 +93,7 @@ func TestClient_Flush(t *testing.T) {
 	defer srv.Close()
 
 	client := &telemetry.Client{
-		ProjectID:        "danicat-dev",
+		ProjectID:        "dojo-skills",
 		APIKey:           "test-key",
 		AuthBaseURL:      srv.URL,
 		FirestoreBaseURL: srv.URL,

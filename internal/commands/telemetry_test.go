@@ -30,10 +30,10 @@ func TestRunTelemetry_Lifecycle(t *testing.T) {
 	tmpDir := t.TempDir()
 	stateFile := filepath.Join(tmpDir, "state.json")
 	cfgFile := filepath.Join(tmpDir, "config.yaml")
-	t.Setenv("KUNGFU_CONFIG_DIR", tmpDir)
-	t.Setenv("KUNGFU_STATE_PATH", stateFile)
-	t.Setenv("KUNGFU_CONFIG", "")
-	t.Setenv("KUNGFU_TELEMETRY", "")
+	t.Setenv("DOJO_CONFIG_DIR", tmpDir)
+	t.Setenv("DOJO_STATE_PATH", stateFile)
+	t.Setenv("DOJO_CONFIG", "")
+	t.Setenv("DOJO_TELEMETRY", "")
 	t.Setenv("DO_NOT_TRACK", "")
 
 	// Seed state with 1 official catalog skill ("godoctor") and 1 third-party/custom skill ("private-skill")
@@ -58,7 +58,7 @@ func TestRunTelemetry_Lifecycle(t *testing.T) {
 			Name:     "godoctor",
 			Category: "coding",
 			Source:   "remote",
-			URL:      "https://skills.danicat.dev/coding/godoctor/SKILL.md",
+			URL:      "https://raw.githubusercontent.com/jadmadi/dojo/main/skills/godoctor/SKILL.md",
 		})
 		cat.AddItem(catalog.Item{
 			ID:       "private-skill",

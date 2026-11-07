@@ -39,7 +39,7 @@ var validOfficialCategories = map[string]bool{
 }
 
 func (a *App) resolveOfficialSkillCategory(skillName string) (string, bool) {
-	if skillName == "kungfu" {
+	if skillName == "dojo" {
 		return "agents", true
 	}
 	if a.Store == nil {
@@ -53,12 +53,12 @@ func (a *App) resolveOfficialSkillCategory(skillName string) (string, bool) {
 	if !validOfficialCategories[cat] {
 		return "", false
 	}
-	isOfficialURL := strings.HasPrefix(item.URL, "https://skills.danicat.dev/") ||
-		strings.HasPrefix(item.URL, "https://raw.githubusercontent.com/danicat/")
+	isOfficialURL := strings.HasPrefix(item.URL, "https://raw.githubusercontent.com/jadmadi/dojo/") ||
+		strings.HasPrefix(item.URL, "https://github.com/jadmadi/dojo/")
 	isOfficialSource := item.Source == "remote" ||
 		item.Source == "default" ||
-		item.Source == "github:danicat/kungfu" ||
-		strings.HasPrefix(item.Source, "https://skills.danicat.dev/") ||
+		item.Source == "github:jadmadi/dojo" ||
+		strings.HasPrefix(item.Source, "https://raw.githubusercontent.com/jadmadi/dojo/") ||
 		(item.Source == "" && isOfficialURL)
 	if !isOfficialSource || !isOfficialURL {
 		return "", false
@@ -292,7 +292,7 @@ func (a *App) renderTelemetrySyncResult(mode OutputMode, status string, deltas [
 }
 
 // syncTelemetryIfEnabled flushes pending official catalog skill deltas when opt-in telemetry is enabled.
-// Piggybacked onto 'kungfu update'.
+// Piggybacked onto 'dojo update'.
 func (a *App) syncTelemetryIfEnabled(ctx context.Context, mode OutputMode) error {
 	if a.Config == nil || !a.Config.IsTelemetryEnabled() {
 		return nil

@@ -400,10 +400,6 @@ func (a *App) resolveDefaultCatalogURL() string {
 		catURL = envURL
 	} else if envURL := os.Getenv("DOJO_REMOTE_URL"); envURL != "" {
 		catURL = envURL
-	} else if envURL := os.Getenv("KUNGFU_URL"); envURL != "" {
-		catURL = envURL
-	} else if envURL := os.Getenv("KUNGFU_REMOTE_URL"); envURL != "" {
-		catURL = envURL
 	} else if a.Config != nil && a.Config.GetCatalogURL("default") != "" {
 		catURL = a.Config.GetCatalogURL("default")
 	}

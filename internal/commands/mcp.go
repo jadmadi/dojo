@@ -107,7 +107,56 @@ func (a *App) RunMCP(args []string) int {
 			}
 			code = subApp.RunLearn(cmdArgs)
 		case "dojo_doctor":
-			code = subApp.RunDoctor(nil)
+			var cmdArgs []string
+			if sk, ok := toolArgs["skills"].(bool); ok && sk {
+				cmdArgs = append(cmdArgs, "--skills")
+			}
+			if sec, ok := toolArgs["security"].(bool); ok && sec {
+				cmdArgs = append(cmdArgs, "--security")
+			}
+			if g, ok := toolArgs["global"].(bool); ok && g {
+				cmdArgs = append(cmdArgs, "-g")
+			}
+			code = subApp.RunDoctor(cmdArgs)
+		case "dojo_sync":
+			var cmdArgs []string
+			if rawSkills, ok := toolArgs["skills"].([]any); ok {
+				for _, rs := range rawSkills {
+					if s := strings.TrimSpace(fmt.Sprint(rs)); s != "" {
+						cmdArgs = append(cmdArgs, s)
+					}
+				}
+			}
+			if t, ok := toolArgs["target"].(string); ok && t != "" {
+				cmdArgs = append(cmdArgs, "--target", t)
+			}
+			if g, ok := toolArgs["global"].(bool); ok && g {
+				cmdArgs = append(cmdArgs, "-g")
+			}
+			if ow, ok := toolArgs["one_way"].(bool); ok && ow {
+				cmdArgs = append(cmdArgs, "--one-way")
+			}
+			code = subApp.RunSync(cmdArgs)
+		case "dojo_profile":
+			action := "export"
+			if act, ok := toolArgs["action"].(string); ok && strings.TrimSpace(act) != "" {
+				action = strings.TrimSpace(act)
+			}
+			cmdArgs := []string{action}
+			if src, ok := toolArgs["source"].(string); ok && strings.TrimSpace(src) != "" {
+				cmdArgs = append(cmdArgs, strings.TrimSpace(src))
+			}
+			if rawSkills, ok := toolArgs["skills"].([]any); ok {
+				for _, rs := range rawSkills {
+					if s := strings.TrimSpace(fmt.Sprint(rs)); s != "" {
+						cmdArgs = append(cmdArgs, s)
+					}
+				}
+			}
+			if g, ok := toolArgs["global"].(bool); ok && g {
+				cmdArgs = append(cmdArgs, "-g")
+			}
+			code = subApp.RunProfile(cmdArgs)
 		default:
 			return fmt.Sprintf("unknown tool %q", name), true
 		}

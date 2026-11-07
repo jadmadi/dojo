@@ -22,13 +22,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
 
 func TestMain(m *testing.M) {
-	tempHome, err := os.MkdirTemp("", "kungfu-catalog-test-*")
+	tempHome, err := os.MkdirTemp("", "dojo-catalog-test-*")
 	if err == nil {
 		_ = os.Setenv("HOME", tempHome)
 	}
@@ -176,11 +177,11 @@ func TestCatalogStoreOperations(t *testing.T) {
 func TestManifestNormalization(t *testing.T) {
 	rawJSON := `{
 		"$schema": "https://schemas.agentskills.io/discovery/0.2.0/schema.json",
-		"name": "danicat/skills",
-		"title": "Daniela Petruzalek Agent Skills Catalog",
+		"name": "jadmadi/dojo",
+		"title": "Dojo Agent Skills Catalog",
 		"gateway": {
 			"name": "catalog",
-			"kungfuLoad": "kungfu load catalog"
+			"dojoLoad": "dojo load catalog"
 		},
 		"items": [
 			{
@@ -189,14 +190,14 @@ func TestManifestNormalization(t *testing.T) {
 				"categoryName": "Game Development",
 				"categoryEmoji": "🕹️",
 				"sha256": "abcdef123456",
-				"installCommand": "npx skills add danicat/skills --skill ebitengineer -y",
+				"installCommand": "dojo learn ebitengineer",
 				"metadata": {
 					"category": "game-dev",
 					"tags": "game-dev, ebitengine, 2d, golang",
-					"author": "Daniela Petruzalek (daniela@danicat.dev)",
-					"version": "1.2.0",
-					"canonical": "https://skills.danicat.dev/game-dev/ebitengineer/SKILL.md",
-					"repository": "https://github.com/danicat/skills/tree/main/game-dev/ebitengineer"
+					"author": "Jad Madi (github.com/jadmadi)",
+					"version": "1.3.0",
+					"canonical": "https://raw.githubusercontent.com/jadmadi/dojo/main/game-dev/ebitengineer/SKILL.md",
+					"repository": "https://github.com/jadmadi/dojo/tree/main/game-dev/ebitengineer"
 				}
 			}
 		]
@@ -207,8 +208,8 @@ func TestManifestNormalization(t *testing.T) {
 		t.Fatalf("Unmarshal failed: %v", err)
 	}
 
-	if m.Gateway == nil || m.Gateway.KungfuLoad != "kungfu load catalog" {
-		t.Errorf("expected gateway kungfuLoad, got %+v", m.Gateway)
+	if m.Gateway == nil || m.Gateway.DojoLoad != "dojo load catalog" {
+		t.Errorf("expected gateway dojoLoad, got %+v", m.Gateway)
 	}
 	if len(m.Items) != 1 {
 		t.Fatalf("expected 1 item, got %d", len(m.Items))
@@ -217,16 +218,16 @@ func TestManifestNormalization(t *testing.T) {
 	if item.ID != "ebitengineer" {
 		t.Errorf("expected ID 'ebitengineer', got %q", item.ID)
 	}
-	if item.Author != "Daniela Petruzalek (daniela@danicat.dev)" {
+	if item.Author != "Jad Madi (github.com/jadmadi)" {
 		t.Errorf("expected normalized author, got %q", item.Author)
 	}
-	if item.Version != "1.2.0" {
+	if item.Version != "1.3.0" {
 		t.Errorf("expected normalized version, got %q", item.Version)
 	}
-	if item.URL != "https://skills.danicat.dev/game-dev/ebitengineer/SKILL.md" {
+	if item.URL != "https://raw.githubusercontent.com/jadmadi/dojo/main/game-dev/ebitengineer/SKILL.md" {
 		t.Errorf("expected normalized canonical URL, got %q", item.URL)
 	}
-	if item.InstallCmd != "npx skills add danicat/skills --skill ebitengineer -y" {
+	if item.InstallCmd != "dojo learn ebitengineer" {
 		t.Errorf("expected normalized InstallCmd, got %q", item.InstallCmd)
 	}
 	if len(item.Tags) != 4 {
@@ -333,16 +334,16 @@ func TestResolveManifestURLsAndCompareSemver(t *testing.T) {
 	if err := json.Unmarshal([]byte(rawJSON), &m); err != nil {
 		t.Fatalf("Unmarshal failed: %v", err)
 	}
-	ResolveManifestURLs(&m, "https://skills.danicat.dev/.well-known/agent-skills/index.json")
+	ResolveManifestURLs(&m, "https://example.com/.well-known/agent-skills/index.json")
 
 	if len(m.Items) != 1 {
 		t.Fatalf("expected 1 item, got %d", len(m.Items))
 	}
 	it := m.Items[0]
-	if it.URL != "https://skills.danicat.dev/.well-known/agent-skills/godoctor/SKILL.md" {
+	if it.URL != "https://example.com/.well-known/agent-skills/godoctor/SKILL.md" {
 		t.Errorf("expected resolved absolute URL, got %q", it.URL)
 	}
-	if it.Entrypoint != "https://skills.danicat.dev/.well-known/agent-skills/godoctor/SKILL.md" {
+	if it.Entrypoint != "https://example.com/.well-known/agent-skills/godoctor/SKILL.md" {
 		t.Errorf("expected resolved Entrypoint, got %q", it.Entrypoint)
 	}
 	if it.FreshnessScore == nil || *it.FreshnessScore != 98 || it.FreshnessTier != "fresh" {
@@ -401,7 +402,7 @@ func TestFetchWithRetry_SuccessAfterRetries(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	resp, err := fetchWithRetry(ctx, ts.Client(), ts.URL, "kungfu-test", 3, 10*time.Millisecond)
+	resp, err := fetchWithRetry(ctx, ts.Client(), ts.URL, "dojo-test", 3, 10*time.Millisecond)
 	if err != nil {
 		t.Fatalf("expected fetchWithRetry to succeed after retries, got err: %v", err)
 	}
@@ -429,7 +430,7 @@ func TestFetchWithRetry_ContextCanceled(t *testing.T) {
 		cancel()
 	}()
 
-	_, err := fetchWithRetry(ctx, ts.Client(), ts.URL, "kungfu-test", 3, 50*time.Millisecond)
+	_, err := fetchWithRetry(ctx, ts.Client(), ts.URL, "dojo-test", 3, 50*time.Millisecond)
 	if err == nil {
 		t.Fatalf("expected context cancellation error, got nil")
 	}
@@ -515,5 +516,31 @@ func TestReadBounded_And_CatalogIsolation(t *testing.T) {
 	}
 	if _, err := cat.Get("go-vet@go-extra"); err != nil {
 		t.Errorf("expected go-vet@go-extra to remain intact, got err: %v", err)
+	}
+}
+
+func TestWellKnownIndexDigestsMatchSkills(t *testing.T) {
+	indexPath := filepath.Join("..", "..", ".well-known", "agent-skills", "index.json")
+	raw, err := os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatalf("reading %s: %v", indexPath, err)
+	}
+	var m Manifest
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatalf("unmarshaling %s: %v", indexPath, err)
+	}
+	if len(m.Items) == 0 {
+		t.Fatalf("expected at least 1 skill in .well-known/agent-skills/index.json")
+	}
+	for _, item := range m.Items {
+		skillMDPath := filepath.Join("..", "..", "skills", item.Name, "SKILL.md")
+		data, err := os.ReadFile(skillMDPath)
+		if err != nil {
+			t.Fatalf("reading %s for skill %q: %v", skillMDPath, item.Name, err)
+		}
+		if err := VerifyDigest(data, item.EffectiveDigest()); err != nil {
+			t.Errorf("skill %q digest mismatch in .well-known/agent-skills/index.json: %v (actual: %s)",
+				item.Name, err, ComputeDigest(data))
+		}
 	}
 }

@@ -573,13 +573,13 @@ func (a *App) refreshCatalogForItem(ctx context.Context, item *catalog.Item, def
 		return nil
 	}
 
-	// 1. Check if item comes from a registered named catalog (e.g. "kungfu" -> github:danicat/kungfu)
+	// 1. Check if item comes from a registered named catalog (e.g. "dojo" -> github:jadmadi/dojo)
 	st := a.loadState()
 	candidateCats := []string{
 		item.Source,
 		strings.TrimPrefix(item.Source, "github:"),
 	}
-	if os.Getenv("KUNGFU_URL") == "" && os.Getenv("KUNGFU_REMOTE_URL") == "" {
+	if os.Getenv("DOJO_URL") == "" && os.Getenv("DOJO_REMOTE_URL") == "" {
 		candidateCats = append(candidateCats, item.Name)
 	}
 	seenCats := make(map[string]bool)

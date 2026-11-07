@@ -25,13 +25,13 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	tempHome, err := os.MkdirTemp("", "kungfu-main-test-home-*")
+	tempHome, err := os.MkdirTemp("", "dojo-main-test-home-*")
 	if err == nil {
 		_ = os.Setenv("HOME", tempHome)
-		_ = os.Setenv("KUNGFU_CONFIG_DIR", filepath.Join(tempHome, ".config", "kungfu"))
-		_ = os.Setenv("KUNGFU_STATE_PATH", filepath.Join(tempHome, ".config", "kungfu", "state.json"))
-		_ = os.Setenv("KUNGFU_CONFIG", "")
-		_ = os.Setenv("KUNGFU_TELEMETRY", "0")
+		_ = os.Setenv("DOJO_CONFIG_DIR", filepath.Join(tempHome, ".config", "dojo"))
+		_ = os.Setenv("DOJO_STATE_PATH", filepath.Join(tempHome, ".config", "dojo", "state.json"))
+		_ = os.Setenv("DOJO_CONFIG", "")
+		_ = os.Setenv("DOJO_TELEMETRY", "0")
 		_ = os.Setenv("DO_NOT_TRACK", "")
 	}
 	code := m.Run()
@@ -91,7 +91,7 @@ func TestRun_CLI_ListAndShow(t *testing.T) {
 		_, _ = w.Write([]byte(`{"version":"1.0.0","items":[]}`))
 	}))
 	defer srv.Close()
-	t.Setenv("KUNGFU_URL", srv.URL)
+	t.Setenv("DOJO_URL", srv.URL)
 
 	var stdout, stderr bytes.Buffer
 	code := Run([]string{"list"}, &stdout, &stderr)
@@ -104,12 +104,12 @@ func TestRun_CLI_ListAndShow(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	code = Run([]string{"show", "kungfu"}, &stdout, &stderr)
+	code = Run([]string{"show", "dojo"}, &stdout, &stderr)
 	if code != ExitSuccess {
-		t.Fatalf("Run(show kungfu) = %d; stderr: %s", code, stderr.String())
+		t.Fatalf("Run(show dojo) = %d; stderr: %s", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "SKILL: kungfu") {
-		t.Errorf("expected kungfu in show output: %s", stdout.String())
+	if !strings.Contains(stdout.String(), "SKILL: dojo") {
+		t.Errorf("expected dojo in show output: %s", stdout.String())
 	}
 }
 
@@ -119,14 +119,14 @@ func TestRun_CLI_Load(t *testing.T) {
 		_, _ = w.Write([]byte(`{"version":"1.0.0","items":[]}`))
 	}))
 	defer srv.Close()
-	t.Setenv("KUNGFU_URL", srv.URL)
+	t.Setenv("DOJO_URL", srv.URL)
 
 	var stdout, stderr bytes.Buffer
-	code := Run([]string{"load", "kungfu"}, &stdout, &stderr)
+	code := Run([]string{"load", "dojo"}, &stdout, &stderr)
 	if code != ExitSuccess {
-		t.Fatalf("Run(load kungfu) = %d; stderr: %s", code, stderr.String())
+		t.Fatalf("Run(load dojo) = %d; stderr: %s", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "# KungFu gateway") {
+	if !strings.Contains(stdout.String(), "# Dojo") {
 		t.Errorf("expected markdown content: %s", stdout.String())
 	}
 }
@@ -140,9 +140,6 @@ func TestRun_CLI_RunBranding(t *testing.T) {
 	errStr := stderr.String()
 	if !strings.Contains(errStr, "dojo run <skill> <script>") {
 		t.Errorf("expected 'dojo run <skill> <script>' in error, got: %s", errStr)
-	}
-	if strings.Contains(errStr, "kungfu run") {
-		t.Errorf("unexpected 'kungfu run' in error, got: %s", errStr)
 	}
 }
 

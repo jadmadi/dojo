@@ -42,7 +42,7 @@ func TestCatalogCache_ETagAndFailFast(t *testing.T) {
 					"name": "cached-skill",
 					"description": "Cached Skill",
 					"type": "skill-md",
-					"url": "https://skills.danicat.dev/testing/cached-skill/SKILL.md",
+					"url": "https://raw.githubusercontent.com/jadmadi/dojo/main/skills/cached-skill/SKILL.md",
 					"digest": "sha256:123456"
 				}
 			]

@@ -31,16 +31,16 @@ import (
 )
 
 const (
-	// DefaultFirestoreProjectID is the Firebase project ID for community telemetry.
-	DefaultFirestoreProjectID = "danicat-dev"
-	// DefaultFirebaseAPIKey is the public Firebase Web API key used for anonymous auth to danicat-dev Firestore.
-	DefaultFirebaseAPIKey = "AIzaSyCazN8y12SLQdV5PPztJ7GsKnFrfCkXVvw" // gitleaks:allow
+	// DefaultFirestoreProjectID is the Firebase project ID for Dojo community telemetry.
+	DefaultFirestoreProjectID = "dojo-skills"
+	// DefaultFirebaseAPIKey is the public Firebase Web API key used for anonymous auth to Dojo Firestore.
+	DefaultFirebaseAPIKey = "dojo-public-telemetry-key"
 	// DefaultAuthBaseURL is the Firebase Identity Toolkit base URL for anonymous authentication.
 	DefaultAuthBaseURL = "https://identitytoolkit.googleapis.com"
 	// DefaultFirestoreBaseURL is the Cloud Firestore REST API base URL.
 	DefaultFirestoreBaseURL = "https://firestore.googleapis.com"
-	// DefaultReferer is the HTTP Referer header required by the restricted public Firebase Web API key.
-	DefaultReferer = "https://skills.danicat.dev/"
+	// DefaultReferer is the HTTP Referer header sent with telemetry requests.
+	DefaultReferer = "https://github.com/jadmadi/dojo"
 	// MaxDeltaPerBatch caps each counter increment in a single flush to match Firestore security rule bounds.
 	MaxDeltaPerBatch = state.MaxTelemetryDelta
 	// MaxWritesPerCommit caps the number of document writes in a single Firestore commit batch.

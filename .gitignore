@@ -2,7 +2,6 @@
 bin/
 dist/
 /dojo
-/kungfu
 *.exe
 *.exe~
 *.dll

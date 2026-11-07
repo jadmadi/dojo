@@ -15,10 +15,15 @@
 package commands
 
 import (
+	"archive/tar"
+	"archive/zip"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -161,7 +166,7 @@ func (a *App) performSelfUpgrade(ctx context.Context, rel githubRelease, targetV
 	for _, asset := range rel.Assets {
 		lower := strings.ToLower(asset.Name)
 		if (strings.Contains(lower, osArch) || strings.Contains(lower, osArchDash)) &&
-			!strings.HasSuffix(lower, ".tar.gz") && !strings.HasSuffix(lower, ".zip") && !strings.HasSuffix(lower, ".txt") {
+			!strings.HasSuffix(lower, ".txt") && !strings.HasSuffix(lower, ".sha256") && !strings.HasSuffix(lower, ".sig") {
 			req, err := http.NewRequestWithContext(ctx, http.MethodGet, asset.BrowserDownloadURL, nil)
 			if err != nil {
 				continue
@@ -174,14 +179,32 @@ func (a *App) performSelfUpgrade(ctx context.Context, rel githubRelease, targetV
 				}
 				continue
 			}
-			binData, err := catalog.ReadBounded(resp.Body, 100<<20)
+			rawData, err := catalog.ReadBounded(resp.Body, 100<<20)
 			_ = resp.Body.Close()
-			if err != nil || len(binData) == 0 {
+			if err != nil || len(rawData) == 0 {
 				continue
+			}
+			binData := rawData
+			if strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz") {
+				extracted, exErr := extractBinaryFromTarGz(rawData)
+				if exErr != nil || len(extracted) == 0 {
+					continue
+				}
+				binData = extracted
+			} else if strings.HasSuffix(lower, ".zip") {
+				extracted, exErr := extractBinaryFromZip(rawData)
+				if exErr != nil || len(extracted) == 0 {
+					continue
+				}
+				binData = extracted
 			}
 			exePath, err := os.Executable()
 			if err != nil {
 				return err
+			}
+			cleanExe, symErr := filepath.EvalSymlinks(exePath)
+			if symErr == nil && cleanExe != "" {
+				exePath = cleanExe
 			}
 			tmpPath := filepath.Join(filepath.Dir(exePath), fmt.Sprintf(".dojo-upgrade.%d.tmp", os.Getpid()))
 			if err := os.WriteFile(tmpPath, binData, 0755); err != nil {
@@ -236,6 +259,59 @@ func (a *App) performSelfUpgrade(ctx context.Context, rel githubRelease, targetV
 	}
 
 	return fmt.Errorf("no prebuilt binary asset found for %s/%s and 'go' toolchain not in PATH", runtime.GOOS, runtime.GOARCH)
+}
+
+func extractBinaryFromTarGz(archiveBytes []byte) ([]byte, error) {
+	gr, err := gzip.NewReader(bytes.NewReader(archiveBytes))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = gr.Close() }()
+
+	tr := tar.NewReader(gr)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		if hdr.Typeflag != tar.TypeReg {
+			continue
+		}
+		base := filepath.Base(hdr.Name)
+		if base == "dojo" || base == "dojo.exe" {
+			return catalog.ReadBounded(tr, 100<<20)
+		}
+	}
+	return nil, fmt.Errorf("dojo binary not found in tar.gz archive")
+}
+
+func extractBinaryFromZip(archiveBytes []byte) ([]byte, error) {
+	zr, err := zip.NewReader(bytes.NewReader(archiveBytes), int64(len(archiveBytes)))
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range zr.File {
+		if f.FileInfo().IsDir() {
+			continue
+		}
+		base := filepath.Base(f.Name)
+		if base == "dojo" || base == "dojo.exe" {
+			rc, err := f.Open()
+			if err != nil {
+				return nil, err
+			}
+			data, rErr := catalog.ReadBounded(rc, 100<<20)
+			_ = rc.Close()
+			if rErr != nil {
+				return nil, rErr
+			}
+			return data, nil
+		}
+	}
+	return nil, fmt.Errorf("dojo binary not found in zip archive")
 }
 
 func findInstalledGoBin(goBin string, installStart time.Time) string {

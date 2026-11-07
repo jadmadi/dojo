@@ -84,7 +84,7 @@ func GetCandidateBaseDirs(item catalog.Item) []string {
 		}
 	}
 
-	// 3. Cache directory ~/.cache/kungfu/skills/<name> or <id>
+	// 3. Cache directory ~/.cache/dojo/skills/<name> or <id>
 	if cacheRoot := resolveCacheRoot(); cacheRoot != "" {
 		expectedDigest := item.EffectiveDigest()
 		canUseCache := func(skillName string) bool {
@@ -155,7 +155,7 @@ func skillCacheKey(item catalog.Item) string {
 	return clean
 }
 
-// CacheSkillFile saves a skill file to ~/.cache/kungfu/skills/<skill>/<relPath>.
+// CacheSkillFile saves a skill file to ~/.cache/dojo/skills/<skill>/<relPath>.
 func CacheSkillFile(skillName, relPath string, data []byte) {
 	cacheSkillFile(skillName, relPath, data)
 }
@@ -592,7 +592,7 @@ func readBytesInternal(ctx context.Context, item catalog.Item, filePath string, 
 
 	if remoteURL != "" {
 		// If the item is an archive (.tar.gz, .zip or ItemTypeArchive), fetch the archive,
-		// verify its digest, unpack it into ~/.cache/kungfu/skills/<sKey>, and read the file!
+		// verify its digest, unpack it into ~/.cache/dojo/skills/<sKey>, and read the file!
 		isArchive := catalog.IsArchiveItem(item)
 
 		if isArchive {
@@ -723,7 +723,7 @@ var (
 	markdownImgRegex   = regexp.MustCompile(`!\[[^\]]*\]\(([^)#?]+)(?:[#?][^)]*)?\)`)
 	backtickPathRegex  = regexp.MustCompile("`((?:scripts|references|assets|evals)/[^`\\s]+)`")
 	prosePathRegex     = regexp.MustCompile(`(?:^|[\s"'` + "`" + `\(\)\[\]])((?:scripts|references|assets|evals)/[a-zA-Z0-9_\-\./]+\.[a-zA-Z0-9_]+)`)
-	dojoRunRegex       = regexp.MustCompile(`(?:dojo|kungfu)\s+run\s+[a-zA-Z0-9_\-]+\s+([a-zA-Z0-9_\-\./]+)`)
+	dojoRunRegex       = regexp.MustCompile(`dojo\s+run\s+[a-zA-Z0-9_\-]+\s+([a-zA-Z0-9_\-\./]+)`)
 	runnerCommandRegex = regexp.MustCompile(`(?:uv\s+run|python3?|bash|sh|node|bun(?:\s+run)?|deno(?:\s+run)?)\s+(?:\./)?scripts/([a-zA-Z0-9_\-\./]+\.[a-zA-Z0-9_]+)`)
 )
 

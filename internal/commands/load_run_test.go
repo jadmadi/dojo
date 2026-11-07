@@ -29,7 +29,7 @@ import (
 )
 
 func TestRunLoad(t *testing.T) {
-	skillContent := "---\nname: kungfu\ndescription: agent skills gateway\n---\n# KungFu: Agent Skills Gateway\n"
+	skillContent := "---\nname: dojo\ndescription: agent skills gateway\n---\n# Dojo: Agent Skills Gateway\n"
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "SKILL.md") {
@@ -42,18 +42,18 @@ func TestRunLoad(t *testing.T) {
 			"$schema": "https://schemas.agentskills.io/discovery/0.2.0/schema.json",
 			"skills": [
 				{
-					"name": "kungfu",
+					"name": "dojo",
 					"type": "skill-md",
 					"description": "Agent skills gateway",
 					"category": "agents",
-					"url": "%s/skills/kungfu/SKILL.md",
+					"url": "%s/skills/dojo/SKILL.md",
 					"digest": "%s"
 				}
 			]
 		}`, server.URL, catalog.ComputeDigest([]byte(skillContent)))
 	}))
 	defer server.Close()
-	t.Setenv("KUNGFU_URL", server.URL)
+	t.Setenv("DOJO_URL", server.URL)
 
 	tests := []struct {
 		name     string
@@ -62,12 +62,12 @@ func TestRunLoad(t *testing.T) {
 		wantSub  string
 	}{
 		{"load missing arg", []string{"load"}, ExitUsage, ""},
-		{"load kungfu raw default", []string{"load", "kungfu"}, ExitSuccess, "# KungFu: Agent Skills Gateway"},
-		{"load kungfu with --local", []string{"load", "kungfu", "--local"}, ExitSuccess, "# KungFu: Agent Skills Gateway"},
-		{"load kungfu with -u", []string{"load", "kungfu", "-u"}, ExitSuccess, "# KungFu: Agent Skills Gateway"},
-		{"load kungfu with -f", []string{"load", "kungfu", "-f"}, ExitSuccess, "# KungFu: Agent Skills Gateway"},
-		{"load multiple skills rejected", []string{"load", "kungfu", "godoctor"}, ExitUsage, ""},
-		{"load skill json", []string{"load", "kungfu", "--json"}, ExitSuccess, "\"name\": \"kungfu\""},
+		{"load dojo raw default", []string{"load", "dojo"}, ExitSuccess, "# Dojo: Agent Skills Gateway"},
+		{"load dojo with --local", []string{"load", "dojo", "--local"}, ExitSuccess, "# Dojo: Agent Skills Gateway"},
+		{"load dojo with -u", []string{"load", "dojo", "-u"}, ExitSuccess, "# Dojo: Agent Skills Gateway"},
+		{"load dojo with -f", []string{"load", "dojo", "-f"}, ExitSuccess, "# Dojo: Agent Skills Gateway"},
+		{"load multiple skills rejected", []string{"load", "dojo", "godoctor"}, ExitUsage, ""},
+		{"load skill json", []string{"load", "dojo", "--json"}, ExitSuccess, "\"name\": \"dojo\""},
 	}
 
 	for _, tt := range tests {
@@ -188,7 +188,7 @@ func TestRunRun(t *testing.T) {
 	_ = os.MkdirAll(scriptsDir, 0755)
 
 	_ = os.WriteFile(filepath.Join(tmpDir, "SKILL.md"), []byte("---\nname: runskill\ncategory: test\n---\n# Run Skill"), 0644)
-	_ = os.WriteFile(filepath.Join(scriptsDir, "echo.sh"), []byte("#!/bin/sh\necho \"kungfu-run-ok: $1\"\n"), 0755)
+	_ = os.WriteFile(filepath.Join(scriptsDir, "echo.sh"), []byte("#!/bin/sh\necho \"dojo-run-ok: $1\"\n"), 0755)
 
 	var stdout, stderr bytes.Buffer
 	app, err := NewApp(GlobalOptions{}, &stdout, &stderr)
@@ -211,7 +211,7 @@ func TestRunRun(t *testing.T) {
 	if code != ExitSuccess {
 		t.Fatalf("RunRun = %d; stderr: %s", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "kungfu-run-ok: hello") {
+	if !strings.Contains(stdout.String(), "dojo-run-ok: hello") {
 		t.Errorf("expected output from script, got: %s", stdout.String())
 	}
 }
@@ -248,7 +248,7 @@ func TestPaginateContent(t *testing.T) {
 }
 
 func TestRunLoad_Pagination(t *testing.T) {
-	skillContent := "---\nname: kungfu\ndescription: agent skills gateway\n---\n# KungFu: Agent Skills Gateway\n" + strings.Repeat("Long body line for pagination testing purposes.\n", 40)
+	skillContent := "---\nname: dojo\ndescription: agent skills gateway\n---\n# Dojo: Agent Skills Gateway\n" + strings.Repeat("Long body line for pagination testing purposes.\n", 40)
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "SKILL.md") {
@@ -261,18 +261,18 @@ func TestRunLoad_Pagination(t *testing.T) {
 			"$schema": "https://schemas.agentskills.io/discovery/0.2.0/schema.json",
 			"skills": [
 				{
-					"name": "kungfu",
+					"name": "dojo",
 					"type": "skill-md",
 					"description": "Agent skills gateway",
 					"category": "agents",
-					"url": "%s/skills/kungfu/SKILL.md",
+					"url": "%s/skills/dojo/SKILL.md",
 					"digest": "%s"
 				}
 			]
 		}`, server.URL, catalog.ComputeDigest([]byte(skillContent)))
 	}))
 	defer server.Close()
-	t.Setenv("KUNGFU_URL", server.URL)
+	t.Setenv("DOJO_URL", server.URL)
 
 	var stdout, stderr bytes.Buffer
 	app, err := NewApp(GlobalOptions{}, &stdout, &stderr)
@@ -280,25 +280,25 @@ func TestRunLoad_Pagination(t *testing.T) {
 		t.Fatalf("NewApp failed: %v", err)
 	}
 
-	// 1. Load kungfu with page-size 500 (page 1)
+	// 1. Load dojo with page-size 500 (page 1)
 	stdout.Reset()
 	stderr.Reset()
-	code := app.RunLoad([]string{"kungfu", "--page-size=500", "-p", "1"})
+	code := app.RunLoad([]string{"dojo", "--page-size=500", "-p", "1"})
 	if code != ExitSuccess {
 		t.Fatalf("RunLoad page 1 failed: %d, stderr: %s", code, stderr.String())
 	}
 	out1 := stdout.String()
-	if !strings.Contains(out1, "[Page 1 of") || !strings.Contains(out1, "Next: dojo load kungfu -p 2]") {
+	if !strings.Contains(out1, "[Page 1 of") || !strings.Contains(out1, "Next: dojo load dojo -p 2]") {
 		t.Errorf("expected page 1 footer with next page hint, got: %s", out1)
 	}
 	if strings.Contains(out1, "--full") {
 		t.Errorf("did not expect --full hint in page 1 footer, got: %s", out1)
 	}
 
-	// 2. Load kungfu with page-size 500 (page 2)
+	// 2. Load dojo with page-size 500 (page 2)
 	stdout.Reset()
 	stderr.Reset()
-	code = app.RunLoad([]string{"kungfu", "--page-size=500", "-p", "2"})
+	code = app.RunLoad([]string{"dojo", "--page-size=500", "-p", "2"})
 	if code != ExitSuccess {
 		t.Fatalf("RunLoad page 2 failed: %d, stderr: %s", code, stderr.String())
 	}
@@ -310,7 +310,7 @@ func TestRunLoad_Pagination(t *testing.T) {
 	// 3. Out of bounds page
 	stdout.Reset()
 	stderr.Reset()
-	code = app.RunLoad([]string{"kungfu", "--page-size=500", "-p", "9999"})
+	code = app.RunLoad([]string{"dojo", "--page-size=500", "-p", "9999"})
 	if code != ExitUsage {
 		t.Fatalf("RunLoad out of bounds page expected ExitUsage (2), got: %d", code)
 	}
@@ -321,7 +321,7 @@ func TestRunLoad_Pagination(t *testing.T) {
 	// 4. Invalid page < 1
 	stdout.Reset()
 	stderr.Reset()
-	code = app.RunLoad([]string{"kungfu", "-p", "0"})
+	code = app.RunLoad([]string{"dojo", "-p", "0"})
 	if code != ExitUsage {
 		t.Fatalf("RunLoad invalid page 0 expected ExitUsage (2), got: %d", code)
 	}
@@ -332,7 +332,7 @@ func TestRunLoad_Pagination(t *testing.T) {
 	// 5. Invalid page-size <= 0 or > 7000
 	stdout.Reset()
 	stderr.Reset()
-	code = app.RunLoad([]string{"kungfu", "--page-size=0"})
+	code = app.RunLoad([]string{"dojo", "--page-size=0"})
 	if code != ExitUsage {
 		t.Fatalf("RunLoad invalid page-size 0 expected ExitUsage (2), got: %d", code)
 	}
@@ -342,7 +342,7 @@ func TestRunLoad_Pagination(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	code = app.RunLoad([]string{"kungfu", "--page-size=7001"})
+	code = app.RunLoad([]string{"dojo", "--page-size=7001"})
 	if code != ExitUsage {
 		t.Fatalf("RunLoad invalid page-size 7001 expected ExitUsage (2), got: %d", code)
 	}
@@ -353,7 +353,7 @@ func TestRunLoad_Pagination(t *testing.T) {
 	// 6. Conflicting --full and -p > 1
 	stdout.Reset()
 	stderr.Reset()
-	code = app.RunLoad([]string{"kungfu", "--full", "-p", "2"})
+	code = app.RunLoad([]string{"dojo", "--full", "-p", "2"})
 	if code != ExitUsage {
 		t.Fatalf("RunLoad --full with -p 2 expected ExitUsage (2), got: %d", code)
 	}
@@ -364,7 +364,7 @@ func TestRunLoad_Pagination(t *testing.T) {
 	// 7. --full outputs unpaginated content without pagination framing
 	stdout.Reset()
 	stderr.Reset()
-	code = app.RunLoad([]string{"kungfu", "--page-size=500", "--full"})
+	code = app.RunLoad([]string{"dojo", "--page-size=500", "--full"})
 	if code != ExitSuccess {
 		t.Fatalf("RunLoad --full failed: %d, stderr: %s", code, stderr.String())
 	}
@@ -372,14 +372,14 @@ func TestRunLoad_Pagination(t *testing.T) {
 	if strings.Contains(fullOut, "[Page ") {
 		t.Errorf("expected no pagination framing with --full, got: %s", fullOut)
 	}
-	if !strings.Contains(fullOut, "# KungFu: Agent Skills Gateway") {
+	if !strings.Contains(fullOut, "# Dojo: Agent Skills Gateway") {
 		t.Errorf("expected full content, got: %s", fullOut)
 	}
 
 	// 8. Multiple skills rejected
 	stdout.Reset()
 	stderr.Reset()
-	code = app.RunLoad([]string{"kungfu", "godoctor"})
+	code = app.RunLoad([]string{"dojo", "godoctor"})
 	if code != ExitUsage {
 		t.Fatalf("RunLoad multiple skills expected ExitUsage (2), got: %d", code)
 	}
@@ -390,7 +390,7 @@ func TestRunLoad_Pagination(t *testing.T) {
 	// 9. JSON mode with pagination
 	stdout.Reset()
 	stderr.Reset()
-	code = app.RunLoad([]string{"kungfu", "--page-size=500", "-p", "1", "--json"})
+	code = app.RunLoad([]string{"dojo", "--page-size=500", "-p", "1", "--json"})
 	if code != ExitSuccess {
 		t.Fatalf("RunLoad --json with pagination failed: %d, stderr: %s", code, stderr.String())
 	}
@@ -402,7 +402,7 @@ func TestRunLoad_Pagination(t *testing.T) {
 
 func TestTelemetryRecording_LoadLearnRun(t *testing.T) {
 	stateFile := filepath.Join(t.TempDir(), "state.json")
-	t.Setenv("KUNGFU_STATE_PATH", stateFile)
+	t.Setenv("DOJO_STATE_PATH", stateFile)
 
 	tmpDir := t.TempDir()
 	refsDir := filepath.Join(tmpDir, "references")

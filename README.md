@@ -2,11 +2,11 @@
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/jadmadi/dojo.svg)](https://pkg.go.dev/github.com/jadmadi/dojo)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/badge/release-v1.2.0-green.svg)](https://github.com/jadmadi/dojo/releases)
+[![Release](https://img.shields.io/badge/release-v1.3.0-green.svg)](https://github.com/jadmadi/dojo/releases)
 
 `dojo` is a static Go command-line tool and Model Context Protocol (MCP) server for finding, streaming, auditing, and synchronizing **Agent Skills** (`SKILL.md`) across local workstations and cloud VMs (`agy-vm`). Coding agents can inspect a skill's Table of Contents (`dojo toc`), stream individual `#sections` (`dojo load <skill>#<section>`) to save 70–90% of context tokens, maintain a **Personal Skills Registry** (`dojo profile link` / `dojo profile sync` / `dojo profile pull`), and bi-directionally reconcile and project skills across **Antigravity (Desktop & CLI)**, Claude Code, Cursor, Windsurf, OpenCode, and Sila (`dojo sila` / `dojo sync`).
 
-`dojo` implements the [Cloudflare Agent Skills Discovery RFC (`v0.2.0`)](https://github.com/cloudflare/agent-skills-discovery-rfc) (`/.well-known/agent-skills/index.json`), verifies SHA-256 content digests, resolves transitive `dependencies` in topological order, and maintains backward compatibility with [KungFu (`danicat/kungfu`)](https://github.com/danicat/kungfu).
+`dojo` implements the [Cloudflare Agent Skills Discovery RFC (`v0.2.0`)](https://github.com/cloudflare/agent-skills-discovery-rfc) (`/.well-known/agent-skills/index.json`), verifies SHA-256 content digests, resolves transitive `dependencies` in topological order, and scans skill packages for secrets and prompt injection before publishing.
 
 ## Installation and quickstart
 
@@ -25,13 +25,13 @@ dojo init --workspace
 dojo find "go testing"
 
 # 3. Inspect section headings, #slugs, line ranges, and byte sizes
-dojo toc godoctor
+dojo toc dojo
 
 # 4. Stream only the section you need into context
-dojo load godoctor#quick-start
+dojo load dojo#1-search-section-level-paging-dojo-find-dojo-toc-dojo-load
 
 # 5. Install a skill, update skills.json, and project across all coding harnesses
-dojo learn godoctor --with-deps --target all
+dojo learn dojo --with-deps --target all
 ```
 
 ## Core workflows and commands
@@ -46,11 +46,11 @@ Every `dojo` command supports human-readable terminal output by default, structu
 | `dojo run <skill> <script>` | Run a bundled script (`uv`, `python3`, `bun`, `deno`, `node`, `bash`) | Passes trailing arguments directly to script |
 | `dojo learn <skill>` | Install a skill locally (`.agents/skills/`) or globally (`-g`) | `-g, --global`, `--with-deps`, `-t, --target <harnesses>` |
 | `dojo sync` / `dojo sila` | Bi-directionally reconcile and project skills across Antigravity, Claude, Cursor, Windsurf, OpenCode, and Sila | `-t, --target <list>`, `-g, --global`, `--one-way` |
-| `dojo profile <subcommand>` | Link a Personal Skills Registry and bi-directionally sync `skills.json` and skills across local machines and `agy-vm` | `link`, `sync`, `pull`, `push`, `apply`, `export`, `-g, --global` |
+| `dojo profile <subcommand>` | Link a Personal Skills Registry and bi-directionally sync `skills.json` and skills across local machines and `agy-vm` | `link`, `sync`, `pull`, `push`, `apply`, `export`, `-g, --global`, `-f, --force` |
 | `dojo init [--workspace \| <name>]` | Initialize a multi-harness workspace (`-w`) or scaffold a new skill package | `-w, --workspace`, `-d, --dir <path>`, `-c, --category <name>` |
 | `dojo completion <shell>` | Generate shell tab-completion scripts (`bash`, `zsh`, `fish`, `powershell`) | Dynamic skill, `#section`, and `--target` completions |
 | `dojo mcp` | Start the JSON-RPC 2.0 MCP server over `stdio` | `--print-schema` |
-| `dojo doctor` | Check environment health, YAML frontmatter, token budgets, and security rules | `--skills`, `--security`, `-g, --global`, `--json` |
+| `dojo doctor` | Check environment health, YAML frontmatter, token budgets, and security/secret rules | `--skills`, `--security`, `-g, --global`, `--json` |
 | `dojo list` / `dojo show` | List catalog skills with numbered `#` indices or inspect metadata by name or number | `--json`, `--raw` |
 | `dojo status` / `dojo update` | Check installed skills for upstream drift and apply updates | `--all`, `-g, --global`, `-f, --force` |
 | `dojo catalog` | Manage federated skill catalogs (`list`, `add`, `remove`) | `-n, --name`, `-b, --ref`, `-p, --subpath` |
@@ -62,16 +62,16 @@ Inspecting a skill's Table of Contents before loading lets agents read only the 
 
 ```bash
 # View all headings, #slugs, line ranges, and byte sizes
-dojo toc draft
+dojo toc dojo
 
 # Load a single section (including nested subsections) by #slug
-dojo load draft#b-built-in-inverted-pyramid-geo-ready-section-leads
+dojo load dojo#3-personal-skills-registry-local-to-cloud-agy-vm-continuity
 
 # Load a companion reference file bundled with a skill
-dojo load godoctor/references/architecture.md
+dojo load dojo/references/migration-guide.md
 
 # Load a skill together with all transitive dependencies in topological order
-dojo load fullstack-go --with-deps
+dojo load dojo --with-deps
 ```
 
 ### Bi-directional cross-harness continuity (`learn`, `sync`, and `sila`)
@@ -90,7 +90,7 @@ dojo load fullstack-go --with-deps
 
 ```bash
 # Install a skill and project it to all harnesses at once
-dojo learn godoctor --with-deps --target all
+dojo learn dojo --with-deps --target all
 
 # Bi-directionally reconcile edits across harnesses and project to Antigravity, Cursor, and Claude
 dojo sila --target antigravity,cursor,claude
@@ -101,7 +101,7 @@ dojo sync --one-way
 
 ### Personal Skills Registry & Local-to-Cloud (`agy-vm`) Continuity (`dojo profile`)
 
-Link a GitHub repository (such as `github:jadmadi/agy-vm` or `github:<you>/my-skills`) once as your **Personal Skills Registry**. `dojo profile sync` then discovers all skills, `.mdc` rules, and slash commands across your local harnesses, generates `skills.json`, and bi-directionally synchronizes them with GitHub. On a remote VM (`agy-vm`) or second workstation, `dojo profile pull` (or `dojo profile sync`) pulls and projects your entire personal skill library in one command:
+Link a GitHub repository (such as `github:jadmadi/agy-vm` or `github:<you>/my-skills`) once as your **Personal Skills Registry**. `dojo profile sync` then discovers all skills, `.mdc` rules, and slash commands across your local harnesses, generates `skills.json`, scans packaged files for accidental secrets or prompt injection, and bi-directionally synchronizes them with GitHub. On a remote VM (`agy-vm`) or second workstation, `dojo profile pull` (or `dojo profile sync`) pulls and projects your entire personal skill library in one command:
 
 ```bash
 # 1. Link your GitHub repository as your Personal Skills Registry (once per machine)
@@ -156,7 +156,7 @@ dojo completion powershell | Out-String | Invoke-Expression
 
 ### Serve skills over Model Context Protocol (`mcp`)
 
-`dojo mcp` runs a zero-dependency JSON-RPC 2.0 MCP server over `stdio`, exposing `dojo_find`, `dojo_toc`, `dojo_load`, `dojo_run`, `dojo_learn`, and `dojo_doctor` as native tools:
+`dojo mcp` runs a zero-dependency JSON-RPC 2.0 MCP server over `stdio`, exposing `dojo_find`, `dojo_toc`, `dojo_load`, `dojo_run`, `dojo_learn`, `dojo_doctor`, `dojo_sync`, and `dojo_profile` as native tools:
 
 ```json
 {
@@ -177,26 +177,27 @@ dojo mcp --print-schema
 
 ### Scaffold and audit skills (`init` and `doctor`)
 
-Create new skills from a tested template and validate frontmatter, single-page token budgets (`6,000` bytes / ~`1,500` tokens), and security patterns before publishing:
+Create new skills from a tested template and validate frontmatter, single-page token budgets (`6,000` bytes / ~`1,500` tokens), and security/secret patterns before publishing:
 
 ```bash
 # Create .agents/skills/my-skill/{SKILL.md,references/guide.md,scripts/check.sh,evals/evals.json}
 dojo init my-skill --category coding --description "Workflow rules for Go services"
 
-# Run frontmatter validation, token budget checks, and static prompt-injection / curl|sh scans
+# Run frontmatter validation, token budget checks, and static secret / prompt-injection / curl|sh scans
 dojo doctor --skills --security
 ```
 
-## Configuration and KungFu compatibility
+## Configuration
 
-`dojo` reads `~/.config/dojo/config.yaml` and `~/.cache/dojo` by default, and falls back automatically to `~/.config/kungfu` and `~/.cache/kungfu` when migrating from an existing `kungfu` setup:
+`dojo` reads `~/.config/dojo/config.yaml` and `~/.cache/dojo` by default:
 
-| Variable | Fallback variable | Default value | Description |
-| :--- | :--- | :--- | :--- |
-| `DOJO_URL` | `KUNGFU_URL` | `https://skills.danicat.dev/.well-known/agent-skills/index.json` | Default remote catalog manifest URL |
-| `DOJO_CONFIG_DIR` | `KUNGFU_CONFIG_DIR` | `~/.config/dojo` | Directory for `config.yaml` and `state.json` |
-| `DOJO_CACHE_DIR` | `KUNGFU_CACHE_DIR` | `~/.cache/dojo` | Directory for ETag-cached manifests and skills |
-| `DOJO_TELEMETRY` | `KUNGFU_TELEMETRY` | `0` (opt-in) | Set to `0` or `DO_NOT_TRACK=1` to disable telemetry |
+| Variable | Default value | Description |
+| :--- | :--- | :--- |
+| `DOJO_URL` | `https://raw.githubusercontent.com/jadmadi/dojo/main/.well-known/agent-skills/index.json` | Default remote catalog manifest URL |
+| `DOJO_PROFILE_REPO` | *(empty)* | Default Personal Skills Registry target (`github:<owner>/<repo>` or directory) |
+| `DOJO_CONFIG_DIR` | `~/.config/dojo` | Directory for `config.yaml` and `state.json` |
+| `DOJO_CACHE_DIR` | `~/.cache/dojo` | Directory for ETag-cached manifests and skills |
+| `DOJO_TELEMETRY` | `0` (opt-in) | Set to `0` or `DO_NOT_TRACK=1` to disable telemetry |
 
 ## Development and testing
 
@@ -206,7 +207,7 @@ Clone the repository and run the test suite and static skill audit locally:
 git clone https://github.com/jadmadi/dojo.git
 cd dojo
 go test -race ./...
-go run . doctor --skills --security
+go run ./cmd/dojo doctor --skills --security
 ```
 
 ## Architecture
@@ -227,9 +228,9 @@ go run . doctor --skills --security
 
 ## Why the name Dojo?
 
-The project originated as a fork of `kungfu` (功夫), paying homage to the *Matrix* line: *"I know Kung Fu."* While Kung Fu represents individual skill acquired through practice, a **Dojo** (道場, literally *"place of the Way"*) is the **training ground itself**.
+In Japanese martial arts, a **Dojo** (道場, literally *"place of the Way"*) is the **training ground** where practitioners hone, refine, and share their craft.
 
-Transitioning from Chinese martial arts terminology (*Kung Fu*) to Japanese (*Dojo*) reflects this architectural shift: rather than only loading a single skill on demand, `dojo` provides the local tooling to author and lint skills (`dojo init`, `dojo doctor`), verify token budgets, maintain portable `skills.json` manifests (`dojo profile`), and bi-directionally synchronize installed skills across multiple agent directories (`dojo sync` / `dojo sila` for Antigravity Desktop & CLI, Claude, Cursor, Windsurf, OpenCode, and Sila).
+`dojo` provides the complete training ground for AI coding agents: local tooling to author and lint skills (`dojo init`, `dojo doctor`), enforce token budgets and secret hygiene, maintain portable `skills.json` manifests (`dojo profile`), and bi-directionally synchronize installed skills across every agent harness (`dojo sync` / `dojo sila` for Antigravity Desktop & CLI, Claude, Cursor, Windsurf, OpenCode, and Sila).
 
 ## License and contributing
 

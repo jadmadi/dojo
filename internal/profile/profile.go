@@ -88,7 +88,7 @@ func BuildManifest(st *state.State, scope, rootDir string, targets []harness.Tar
 
 	if st != nil {
 		for _, c := range st.Catalogs {
-			if c.Name == "default" || c.Name == "dojo" || c.Name == "kungfu" || c.Source == "" {
+			if c.Name == "default" || c.Name == "dojo" || c.Source == "" {
 				continue
 			}
 			m.Catalogs[c.Name] = c.Source

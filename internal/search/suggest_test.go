@@ -31,8 +31,8 @@ func TestLevenshtein(t *testing.T) {
 		{"godoc", "godoctor", 3},
 		{"godoctr", "godoctor", 1},
 		{"ebitengineer", "ebiten", 6},
-		{"kungfu", "kungfuu", 1},
-		{"KUNGFU", "kungfu", 0},
+		{"dojo", "dojoo", 1},
+		{"DOJO", "dojo", 0},
 		{"café", "cafe", 1},
 		{"über", "uber", 1},
 		{"こんにちは", "こんには", 1},
@@ -53,7 +53,7 @@ func TestSuggest(t *testing.T) {
 		"deslopify",
 		"buffer",
 		"google-analytics",
-		"kungfu",
+		"dojo",
 	}
 
 	t.Run("prefix match godoc -> godoctor", func(t *testing.T) {
@@ -80,11 +80,11 @@ func TestSuggest(t *testing.T) {
 		}
 	})
 
-	t.Run("typo match kungfuu -> kungfu", func(t *testing.T) {
-		got := Suggest("kungfuu", candidates, 3)
-		want := []string{"kungfu"}
+	t.Run("typo match dojoo -> dojo", func(t *testing.T) {
+		got := Suggest("dojoo", candidates, 3)
+		want := []string{"dojo"}
 		if !reflect.DeepEqual(got, want) {
-			t.Errorf("Suggest(kungfuu) = %v, want %v", got, want)
+			t.Errorf("Suggest(dojoo) = %v, want %v", got, want)
 		}
 	})
 

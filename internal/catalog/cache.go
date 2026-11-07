@@ -34,29 +34,19 @@ type CachedCatalog struct {
 	Manifest  Manifest  `json:"manifest"`
 }
 
-// DefaultCacheDir returns ~/.cache/dojo (or ~/.cache/kungfu fallback) or DOJO_CACHE_DIR / KUNGFU_CACHE_DIR if set.
+// DefaultCacheDir returns ~/.cache/dojo or DOJO_CACHE_DIR if set.
 func DefaultCacheDir() string {
 	if envDir := os.Getenv("DOJO_CACHE_DIR"); envDir != "" {
-		return envDir
-	}
-	if envDir := os.Getenv("KUNGFU_CACHE_DIR"); envDir != "" {
 		return envDir
 	}
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
 		return filepath.Join(os.TempDir(), "dojo-cache")
 	}
-	dojoCache := filepath.Join(home, ".cache", "dojo")
-	kungfuCache := filepath.Join(home, ".cache", "kungfu")
-	if _, err := os.Stat(dojoCache); err != nil {
-		if fi, kErr := os.Stat(kungfuCache); kErr == nil && fi.IsDir() {
-			return kungfuCache
-		}
-	}
-	return dojoCache
+	return filepath.Join(home, ".cache", "dojo")
 }
 
-// GetCatalogCachePath returns ~/.cache/kungfu/index.json.
+// GetCatalogCachePath returns ~/.cache/dojo/index.json.
 func GetCatalogCachePath() string {
 	return filepath.Join(DefaultCacheDir(), "index.json")
 }
@@ -116,7 +106,7 @@ func SaveCachedCatalog(cachePath string, remoteURL string, manifest Manifest, et
 	return nil
 }
 
-// GetCatalogsCacheDir returns ~/.cache/kungfu/catalogs.
+// GetCatalogsCacheDir returns ~/.cache/dojo/catalogs.
 func GetCatalogsCacheDir() string {
 	return GetCatalogsCacheDirIn("")
 }
@@ -144,7 +134,7 @@ func SafeCatalogFileName(name string) string {
 	return clean + ".json"
 }
 
-// SaveNamedCatalogCache saves a named catalog manifest to ~/.cache/kungfu/catalogs/<safe-name>.json.
+// SaveNamedCatalogCache saves a named catalog manifest to ~/.cache/dojo/catalogs/<safe-name>.json.
 func SaveNamedCatalogCache(name string, sourceURL string, manifest Manifest, etag string) error {
 	return SaveNamedCatalogCacheIn("", name, sourceURL, manifest, etag)
 }
@@ -184,7 +174,7 @@ func DeleteNamedCatalogCacheIn(cacheDir, name string) error {
 	return nil
 }
 
-// LoadAllNamedCatalogCaches loads all cached external catalogs from ~/.cache/kungfu/catalogs/.
+// LoadAllNamedCatalogCaches loads all cached external catalogs from ~/.cache/dojo/catalogs/.
 func LoadAllNamedCatalogCaches() (map[string]*CachedCatalog, error) {
 	return LoadAllNamedCatalogCachesIn("")
 }

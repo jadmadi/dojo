@@ -24,12 +24,12 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	tempHome, err := os.MkdirTemp("", "kungfu-config-test-*")
+	tempHome, err := os.MkdirTemp("", "dojo-config-test-*")
 	if err == nil {
 		_ = os.Setenv("HOME", tempHome)
-		_ = os.Setenv("KUNGFU_CONFIG_DIR", filepath.Join(tempHome, ".config", "kungfu"))
-		_ = os.Setenv("KUNGFU_CONFIG", "")
-		_ = os.Setenv("KUNGFU_TELEMETRY", "")
+		_ = os.Setenv("DOJO_CONFIG_DIR", filepath.Join(tempHome, ".config", "dojo"))
+		_ = os.Setenv("DOJO_CONFIG", "")
+		_ = os.Setenv("DOJO_TELEMETRY", "")
 		_ = os.Setenv("DO_NOT_TRACK", "")
 	}
 	code := m.Run()
@@ -40,7 +40,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestConfig_Default(t *testing.T) {
-	t.Setenv("KUNGFU_CONFIG_DIR", t.TempDir())
+	t.Setenv("DOJO_CONFIG_DIR", t.TempDir())
 	cfg, err := config.Load("")
 	if err != nil {
 		t.Fatalf("expected no error for missing default file, got %v", err)
@@ -58,7 +58,7 @@ func TestConfig_Default(t *testing.T) {
 
 func TestConfig_SaveDoesNotLeakKeys(t *testing.T) {
 	tmpDir := t.TempDir()
-	t.Setenv("KUNGFU_CONFIG_DIR", tmpDir)
+	t.Setenv("DOJO_CONFIG_DIR", tmpDir)
 	cfg := config.DefaultConfig()
 	cfg.SetTelemetryEnabled(true)
 	savedPath, err := config.Save("", cfg)
@@ -132,7 +132,7 @@ func TestConfig_LoadJSON(t *testing.T) {
 
 func TestConfig_ResolvePath(t *testing.T) {
 	tmpDir := t.TempDir()
-	t.Setenv("KUNGFU_CONFIG_DIR", tmpDir)
+	t.Setenv("DOJO_CONFIG_DIR", tmpDir)
 
 	// No file exists -> returns default path
 	resolved := config.ResolveConfigPath("")
@@ -156,8 +156,8 @@ func TestConfig_ResolvePath(t *testing.T) {
 		t.Errorf("expected to resolve to existing config.yaml, got %s", resolved)
 	}
 
-	// KUNGFU_CONFIG overrides
-	t.Setenv("KUNGFU_CONFIG", "/custom/env/path.yaml")
+	// DOJO_CONFIG overrides
+	t.Setenv("DOJO_CONFIG", "/custom/env/path.yaml")
 	if r := config.ResolveConfigPath(""); r != "/custom/env/path.yaml" {
 		t.Errorf("expected env override, got %s", r)
 	}
@@ -166,7 +166,6 @@ func TestConfig_ResolvePath(t *testing.T) {
 func TestConfig_ProfileRepo(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("DOJO_CONFIG_DIR", tmpDir)
-	t.Setenv("KUNGFU_CONFIG_DIR", tmpDir)
 	t.Setenv("DOJO_PROFILE_REPO", "")
 
 	cfg := config.DefaultConfig()

@@ -135,7 +135,7 @@ func (a *App) RunUpdate(args []string) int {
 
 		if rec.Origin == state.OriginCustom {
 			if !dryRun && len(posArgs) > 0 {
-				_, _ = fmt.Fprintf(a.Stderr, "error: skill %q is a custom/external skill (not learned from catalog). Kungfu cannot update custom skills.\n", name)
+				_, _ = fmt.Fprintf(a.Stderr, "error: skill %q is a custom/external skill (not learned from catalog). Dojo cannot update custom skills.\n", name)
 				return ExitUsage
 			}
 			checks = append(checks, SkillUpdateCheck{
@@ -191,7 +191,7 @@ func (a *App) RunUpdate(args []string) int {
 				}
 			}
 			if err != nil || item == nil || (item.URL == "" && item.Body == "") {
-				lookupCatalogs := []string{rec.Catalog, name, "kungfu"}
+				lookupCatalogs := []string{rec.Catalog, name, "dojo"}
 				for _, catName := range lookupCatalogs {
 					if catName == "" {
 						continue

@@ -47,6 +47,36 @@ var securityPatterns = []struct {
 	{"base64 decode execution", regexp.MustCompile(`(?i)base64\s+(-d|--decode)[^\n|]*\|\s*(sh|bash|python|perl|node)`)},
 	{"prompt injection / instruction override", regexp.MustCompile(`(?i)(ignore\s+(all\s+)?(previous|prior)\s+instructions|disregard\s+system\s+prompt|you\s+are\s+now\s+in\s+developer\s+mode)`)},
 	{"suspicious credential exfiltration", regexp.MustCompile(`(?i)(curl|wget)[^\n]*(\$\{?(AWS_SECRET|GITHUB_TOKEN|OPENAI_API_KEY|ANTHROPIC_API_KEY)|\.ssh/id_rsa|\.env\b)`)},
+	{"hardcoded GitHub token (ghp_/github_pat_)", regexp.MustCompile(`\b(ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b`)},
+	{"hardcoded API key or secret token (sk-/AIza/AKIA/xox)", regexp.MustCompile(`\b(sk-[A-Za-z0-9_\-]{20,}|AIza[0-9A-Za-z_\-]{35}|AKIA[0-9A-Z]{16}|xox[baprs]-[0-9A-Za-z\-]{10,})\b`)},
+	{"private key block", regexp.MustCompile(`-----BEGIN (?:RSA |EC |OPENSSH |DSA |PRIVATE )?PRIVATE KEY-----`)},
+}
+
+// ScanDirectorySecurity scans all text files inside a skill directory for prompt injection,
+// unsafe remote execution pipes, and hardcoded secret tokens.
+func ScanDirectorySecurity(skillName, dir string) []DoctorFinding {
+	var findings []DoctorFinding
+	files := walkRelativeFiles(dir)
+	for _, rel := range files {
+		fp := filepath.Join(dir, filepath.FromSlash(rel))
+		content, err := os.ReadFile(fp)
+		if err != nil {
+			continue
+		}
+		text := string(content)
+		for _, pat := range securityPatterns {
+			if pat.regex.MatchString(text) {
+				findings = append(findings, DoctorFinding{
+					Category: "security",
+					Skill:    skillName,
+					Severity: "error",
+					Message:  fmt.Sprintf("detected %s in %s", pat.name, rel),
+					File:     fp,
+				})
+			}
+		}
+	}
+	return findings
 }
 
 // RunDoctor audits environment health, installed skill frontmatter compliance, token budgets,
@@ -205,29 +235,10 @@ func (a *App) RunDoctor(args []string) int {
 		}
 
 		if runSecurity {
-			files := walkRelativeFiles(dir)
-			flagged := false
-			for _, rel := range files {
-				fp := filepath.Join(dir, filepath.FromSlash(rel))
-				content, err := os.ReadFile(fp)
-				if err != nil {
-					continue
-				}
-				text := string(content)
-				for _, pat := range securityPatterns {
-					if pat.regex.MatchString(text) {
-						flagged = true
-						findings = append(findings, DoctorFinding{
-							Category: "security",
-							Skill:    name,
-							Severity: "warn",
-							Message:  fmt.Sprintf("detected %s in %s", pat.name, rel),
-							File:     fp,
-						})
-					}
-				}
-			}
-			if !flagged {
+			secFindings := ScanDirectorySecurity(name, dir)
+			if len(secFindings) > 0 {
+				findings = append(findings, secFindings...)
+			} else {
 				findings = append(findings, DoctorFinding{
 					Category: "security",
 					Skill:    name,

@@ -33,7 +33,7 @@ func TestRunCatalog(t *testing.T) {
 	t.Setenv("HOME", tmpDir)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmpDir, ".config"))
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(tmpDir, ".cache"))
-	t.Setenv("KUNGFU_STATE_PATH", filepath.Join(tmpDir, ".kungfu-state.json"))
+	t.Setenv("DOJO_STATE_PATH", filepath.Join(tmpDir, ".dojo-state.json"))
 
 	// Create mock HTTP server for custom catalog
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -51,7 +51,7 @@ func TestRunCatalog(t *testing.T) {
 		}`))
 	}))
 	defer server.Close()
-	t.Setenv("KUNGFU_URL", server.URL)
+	t.Setenv("DOJO_URL", server.URL)
 
 	var stdout, stderr bytes.Buffer
 	app, err := NewApp(GlobalOptions{}, &stdout, &stderr)

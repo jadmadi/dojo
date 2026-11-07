@@ -27,9 +27,9 @@ import (
 	"github.com/jadmadi/dojo/internal/catalog"
 )
 
-func startMockKungfuServer(t *testing.T) (*httptest.Server, string) {
+func startMockDojoServer(t *testing.T) (*httptest.Server, string) {
 	t.Helper()
-	skillContent := "---\nname: kungfu\ndescription: agent skills gateway\n---\n# KungFu: Agent Skills Gateway\n"
+	skillContent := "---\nname: dojo\ndescription: agent skills gateway\n---\n# Dojo: Agent Skills Gateway\n"
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "SKILL.md") {
@@ -42,11 +42,11 @@ func startMockKungfuServer(t *testing.T) (*httptest.Server, string) {
 			"$schema": "https://schemas.agentskills.io/discovery/0.2.0/schema.json",
 			"skills": [
 				{
-					"name": "kungfu",
+					"name": "dojo",
 					"type": "skill-md",
 					"description": "agent skills gateway",
 					"category": "agents",
-					"url": "%s/skills/kungfu/SKILL.md",
+					"url": "%s/skills/dojo/SKILL.md",
 					"digest": "%s"
 				}
 			]
@@ -62,11 +62,11 @@ func TestRunLearnAndForget(t *testing.T) {
 	defer func() { _ = os.Chdir(origWd) }()
 
 	t.Setenv("HOME", tmpDir)
-	t.Setenv("KUNGFU_STATE_PATH", filepath.Join(tmpDir, ".kungfu-state.json"))
+	t.Setenv("DOJO_STATE_PATH", filepath.Join(tmpDir, ".dojo-state.json"))
 
-	server, _ := startMockKungfuServer(t)
+	server, _ := startMockDojoServer(t)
 	defer server.Close()
-	t.Setenv("KUNGFU_URL", server.URL)
+	t.Setenv("DOJO_URL", server.URL)
 
 	var stdout, stderr bytes.Buffer
 	app, err := NewApp(GlobalOptions{}, &stdout, &stderr)
@@ -77,16 +77,16 @@ func TestRunLearnAndForget(t *testing.T) {
 	// 1. Learn skill into workspace
 	stdout.Reset()
 	stderr.Reset()
-	code := app.RunLearn([]string{"kungfu"})
+	code := app.RunLearn([]string{"dojo"})
 	if code != ExitSuccess {
-		t.Fatalf("RunLearn(kungfu) = %d; stderr: %s", code, stderr.String())
+		t.Fatalf("RunLearn(dojo) = %d; stderr: %s", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "Learned skill \"kungfu\"") {
+	if !strings.Contains(stdout.String(), "Learned skill \"dojo\"") {
 		t.Errorf("expected learned confirmation, got: %s", stdout.String())
 	}
 
 	// Verify file exists on disk
-	installedMD := filepath.Join(tmpDir, ".agents", "skills", "kungfu", "SKILL.md")
+	installedMD := filepath.Join(tmpDir, ".agents", "skills", "dojo", "SKILL.md")
 	if _, err := os.Stat(installedMD); err != nil {
 		t.Fatalf("expected installed SKILL.md at %s, got: %v", installedMD, err)
 	}
@@ -98,18 +98,18 @@ func TestRunLearnAndForget(t *testing.T) {
 	if code != ExitSuccess {
 		t.Fatalf("RunStatus = %d; stderr: %s", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "kungfu") {
-		t.Errorf("expected kungfu in status output, got: %s", stdout.String())
+	if !strings.Contains(stdout.String(), "dojo") {
+		t.Errorf("expected dojo in status output, got: %s", stdout.String())
 	}
 
 	// 3. Forget skill
 	stdout.Reset()
 	stderr.Reset()
-	code = app.RunForget([]string{"kungfu"})
+	code = app.RunForget([]string{"dojo"})
 	if code != ExitSuccess {
-		t.Fatalf("RunForget(kungfu) = %d; stderr: %s", code, stderr.String())
+		t.Fatalf("RunForget(dojo) = %d; stderr: %s", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "Forgot skill \"kungfu\"") {
+	if !strings.Contains(stdout.String(), "Forgot skill \"dojo\"") {
 		t.Errorf("expected forgot confirmation, got: %s", stdout.String())
 	}
 
@@ -126,11 +126,11 @@ func TestRunUpdate(t *testing.T) {
 	defer func() { _ = os.Chdir(origWd) }()
 
 	t.Setenv("HOME", tmpDir)
-	t.Setenv("KUNGFU_STATE_PATH", filepath.Join(tmpDir, ".kungfu-state.json"))
+	t.Setenv("DOJO_STATE_PATH", filepath.Join(tmpDir, ".dojo-state.json"))
 
-	server, _ := startMockKungfuServer(t)
+	server, _ := startMockDojoServer(t)
 	defer server.Close()
-	t.Setenv("KUNGFU_URL", server.URL)
+	t.Setenv("DOJO_URL", server.URL)
 
 	var stdout, stderr bytes.Buffer
 	app, err := NewApp(GlobalOptions{}, &stdout, &stderr)
@@ -139,7 +139,7 @@ func TestRunUpdate(t *testing.T) {
 	}
 
 	// Learn skill first
-	code := app.RunLearn([]string{"kungfu"})
+	code := app.RunLearn([]string{"dojo"})
 	if code != ExitSuccess {
 		t.Fatalf("RunLearn = %d; stderr: %s", code, stderr.String())
 	}
@@ -151,8 +151,8 @@ func TestRunUpdate(t *testing.T) {
 	if code != ExitSuccess {
 		t.Fatalf("RunUpdate dry-run = %d; stderr: %s", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "kungfu") {
-		t.Errorf("expected kungfu in update check, got: %s", stdout.String())
+	if !strings.Contains(stdout.String(), "dojo") {
+		t.Errorf("expected dojo in update check, got: %s", stdout.String())
 	}
 }
 
@@ -163,11 +163,11 @@ func TestRunUpdate_ConflictAndForce(t *testing.T) {
 	defer func() { _ = os.Chdir(origWd) }()
 
 	t.Setenv("HOME", tmpDir)
-	t.Setenv("KUNGFU_STATE_PATH", filepath.Join(tmpDir, ".kungfu-state.json"))
+	t.Setenv("DOJO_STATE_PATH", filepath.Join(tmpDir, ".dojo-state.json"))
 
-	server, _ := startMockKungfuServer(t)
+	server, _ := startMockDojoServer(t)
 	defer server.Close()
-	t.Setenv("KUNGFU_URL", server.URL)
+	t.Setenv("DOJO_URL", server.URL)
 
 	var stdout, stderr bytes.Buffer
 	app, err := NewApp(GlobalOptions{}, &stdout, &stderr)
@@ -176,13 +176,13 @@ func TestRunUpdate_ConflictAndForce(t *testing.T) {
 	}
 
 	// 1. Learn skill
-	if code := app.RunLearn([]string{"kungfu"}); code != ExitSuccess {
+	if code := app.RunLearn([]string{"dojo"}); code != ExitSuccess {
 		t.Fatalf("RunLearn = %d; stderr: %s", code, stderr.String())
 	}
 
 	// 2. Modify local skill file to create conflict
-	skillFilePath := filepath.Join(tmpDir, ".agents", "skills", "kungfu", "SKILL.md")
-	if err := os.WriteFile(skillFilePath, []byte("# Kungfu modified locally"), 0644); err != nil {
+	skillFilePath := filepath.Join(tmpDir, ".agents", "skills", "dojo", "SKILL.md")
+	if err := os.WriteFile(skillFilePath, []byte("# Dojo modified locally"), 0644); err != nil {
 		t.Fatalf("failed to write local modification: %v", err)
 	}
 
@@ -199,7 +199,7 @@ func TestRunUpdate_ConflictAndForce(t *testing.T) {
 	// 4. Update without -f should fail visibly
 	stdout.Reset()
 	stderr.Reset()
-	if code := app.RunUpdate([]string{"kungfu"}); code != ExitGeneral {
+	if code := app.RunUpdate([]string{"dojo"}); code != ExitGeneral {
 		t.Fatalf("expected RunUpdate without -f to fail with ExitGeneral, got %d", code)
 	}
 	if !strings.Contains(stderr.String(), "Local skill has been modified since install; pass -f/--force") {
@@ -209,10 +209,10 @@ func TestRunUpdate_ConflictAndForce(t *testing.T) {
 	// 5. Update with -f should succeed
 	stdout.Reset()
 	stderr.Reset()
-	if code := app.RunUpdate([]string{"-f", "kungfu"}); code != ExitSuccess {
+	if code := app.RunUpdate([]string{"-f", "dojo"}); code != ExitSuccess {
 		t.Fatalf("RunUpdate with -f failed = %d; stderr: %s", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "Updated skill \"kungfu\"") {
+	if !strings.Contains(stdout.String(), "Updated skill \"dojo\"") {
 		t.Errorf("expected successful update message, got: %s", stdout.String())
 	}
 }

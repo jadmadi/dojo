@@ -32,7 +32,7 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	tempHome, err := os.MkdirTemp("", "kungfu-runner-test-*")
+	tempHome, err := os.MkdirTemp("", "dojo-runner-test-*")
 	if err == nil {
 		_ = os.Setenv("HOME", tempHome)
 	}
@@ -91,13 +91,13 @@ func TestRunScript_PythonScript(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	err := runner.RunScript(item, "test_script.py", []string{"kungfu"}, &stdout, &stderr)
+	err := runner.RunScript(item, "test_script.py", []string{"dojo"}, &stdout, &stderr)
 	if err != nil {
 		t.Skipf("Skipping Python test in environment without python: %v", err)
 		return
 	}
-	if !strings.Contains(stdout.String(), "PyArg:kungfu") {
-		t.Errorf("expected PyArg:kungfu in output, got: %q", stdout.String())
+	if !strings.Contains(stdout.String(), "PyArg:dojo") {
+		t.Errorf("expected PyArg:dojo in output, got: %q", stdout.String())
 	}
 }
 
@@ -392,7 +392,7 @@ func TestExtractCandidates(t *testing.T) {
 	md := `# Sample Skill
 Use the companion script ` + "`" + `scripts/analytics.py` + "`" + ` or ` + "`" + `references/schema.md` + "`" + `.
 Run it using:
-kungfu run analytics helper.py --flag
+dojo run analytics helper.py --flag
 Or with uv:
 uv run scripts/worker.py
 Or bash:

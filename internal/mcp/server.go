@@ -149,8 +149,51 @@ func Tools() []Tool {
 			Name:        "dojo_doctor",
 			Description: "Run Dojo environment diagnostics, frontmatter linting, token budget analysis, and security scan.",
 			InputSchema: map[string]any{
-				"type":       "object",
-				"properties": map[string]any{},
+				"type": "object",
+				"properties": map[string]any{
+					"skills":   map[string]any{"type": "boolean", "description": "Audit installed skills for frontmatter and token budget compliance"},
+					"security": map[string]any{"type": "boolean", "description": "Scan installed skills and scripts for prompt injection, unsafe pipes, and secrets"},
+					"global":   map[string]any{"type": "boolean", "description": "Include global skills (~/.agents/skills/)"},
+				},
+			},
+		},
+		{
+			Name:        "dojo_sync",
+			Description: "Bi-directionally synchronize and project installed skills across AI coding harnesses (Claude, Cursor, Antigravity, Gemini, Windsurf, OpenCode, Sila).",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"skills": map[string]any{
+						"type":        "array",
+						"items":       map[string]any{"type": "string"},
+						"description": "Optional list of specific skill names to sync (defaults to all installed skills)",
+					},
+					"target":  map[string]any{"type": "string", "description": "Target harnesses (all, auto, claude, cursor, antigravity, gemini, windsurf, opencode, sila)"},
+					"global":  map[string]any{"type": "boolean", "description": "Sync global scope (~/.agents/skills/)"},
+					"one_way": map[string]any{"type": "boolean", "description": "Disable reverse reconciliation before projecting"},
+				},
+			},
+		},
+		{
+			Name:        "dojo_profile",
+			Description: "Manage the Personal Skills Registry and traveling skills.json manifest (link, unlink, pull, push, sync, export).",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"action": map[string]any{
+						"type":        "string",
+						"description": "Profile action: link, unlink, pull, push, sync, or export",
+						"enum":        []string{"link", "unlink", "pull", "push", "sync", "export"},
+					},
+					"source": map[string]any{"type": "string", "description": "Optional repository target (github:owner/repo) or manifest path"},
+					"skills": map[string]any{
+						"type":        "array",
+						"items":       map[string]any{"type": "string"},
+						"description": "Optional skill/command names when action is 'push'",
+					},
+					"global": map[string]any{"type": "boolean", "description": "Operate on global profile scope"},
+				},
+				"required": []string{"action"},
 			},
 		},
 	}

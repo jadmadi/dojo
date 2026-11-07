@@ -26,13 +26,10 @@ import (
 )
 
 // DefaultCatalogURL is the default remote catalog URL.
-const DefaultCatalogURL = "https://skills.danicat.dev/.well-known/agent-skills/index.json"
+const DefaultCatalogURL = "https://raw.githubusercontent.com/jadmadi/dojo/main/.well-known/agent-skills/index.json"
 
 // DefaultDojoGitHubCatalog is the primary Dojo GitHub catalog repository.
 const DefaultDojoGitHubCatalog = "jadmadi/dojo"
-
-// DefaultGitHubCatalog is the legacy Kungfu GitHub catalog repository.
-const DefaultGitHubCatalog = "danicat/kungfu"
 
 // DefaultGeminiSkillsCatalog is the official Google Gemini Skills catalog repository.
 const DefaultGeminiSkillsCatalog = "google-gemini/gemini-skills"
@@ -93,7 +90,6 @@ func DefaultConfig() *Config {
 		Catalogs: map[string]string{
 			"default":       DefaultCatalogURL,
 			"dojo":          DefaultDojoGitHubCatalog,
-			"kungfu":        DefaultGitHubCatalog,
 			"gemini-skills": DefaultGeminiSkillsCatalog,
 		},
 	}
@@ -107,16 +103,13 @@ func (c *Config) IsAutoUpdate() bool {
 	return *c.Load.AutoUpdate
 }
 
-// IsTelemetryEnabled returns true only if community telemetry is explicitly enabled via config or DOJO_TELEMETRY / KUNGFU_TELEMETRY=1/true,
+// IsTelemetryEnabled returns true only if community telemetry is explicitly enabled via config or DOJO_TELEMETRY=1/true,
 // and DO_NOT_TRACK is not set to 1/true.
 func (c *Config) IsTelemetryEnabled() bool {
 	if dnt := strings.ToLower(strings.TrimSpace(os.Getenv("DO_NOT_TRACK"))); dnt == "1" || dnt == "true" {
 		return false
 	}
 	if env := strings.ToLower(strings.TrimSpace(os.Getenv("DOJO_TELEMETRY"))); env != "" {
-		return env == "1" || env == "true" || env == "on" || env == "yes"
-	}
-	if env := strings.ToLower(strings.TrimSpace(os.Getenv("KUNGFU_TELEMETRY"))); env != "" {
 		return env == "1" || env == "true" || env == "on" || env == "yes"
 	}
 	if c == nil || c.Telemetry.Enabled == nil {
@@ -146,8 +139,6 @@ func (c *Config) GetCatalogURL(name string) string {
 		return DefaultCatalogURL
 	case "dojo":
 		return DefaultDojoGitHubCatalog
-	case "kungfu":
-		return DefaultGitHubCatalog
 	case "gemini-skills":
 		return DefaultGeminiSkillsCatalog
 	default:
@@ -155,32 +146,22 @@ func (c *Config) GetCatalogURL(name string) string {
 	}
 }
 
-// UserConfigDir returns ~/.config/dojo (or ~/.config/kungfu fallback), or respects DOJO_CONFIG_DIR / KUNGFU_CONFIG_DIR.
+// UserConfigDir returns ~/.config/dojo, or respects DOJO_CONFIG_DIR.
 func UserConfigDir() string {
 	if dir := os.Getenv("DOJO_CONFIG_DIR"); dir != "" {
-		return dir
-	}
-	if dir := os.Getenv("KUNGFU_CONFIG_DIR"); dir != "" {
 		return dir
 	}
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
 		panic(fmt.Sprintf("config: unable to resolve user home directory: %v", err))
 	}
-	dojoDir := filepath.Join(home, ".config", "dojo")
-	kungfuDir := filepath.Join(home, ".config", "kungfu")
-	if _, err := os.Stat(dojoDir); err != nil {
-		if fi, kErr := os.Stat(kungfuDir); kErr == nil && fi.IsDir() {
-			return kungfuDir
-		}
-	}
-	return dojoDir
+	return filepath.Join(home, ".config", "dojo")
 }
 
 // ResolveConfigPath locates the active configuration file.
 // Precedence:
 // 1. Explicit path parameter (e.g. from --config flag)
-// 2. DOJO_CONFIG or KUNGFU_CONFIG env var
+// 2. DOJO_CONFIG env var
 // 3. ~/.config/dojo/config.yaml
 // 4. ~/.config/dojo/config.yml
 // 5. ~/.config/dojo/config.json
@@ -189,9 +170,6 @@ func ResolveConfigPath(customPath string) string {
 		return customPath
 	}
 	if envPath := os.Getenv("DOJO_CONFIG"); envPath != "" {
-		return envPath
-	}
-	if envPath := os.Getenv("KUNGFU_CONFIG"); envPath != "" {
 		return envPath
 	}
 
@@ -212,9 +190,9 @@ func ResolveConfigPath(customPath string) string {
 }
 
 // Load reads and parses user configuration from the resolved path.
-// If no explicit customPath or DOJO_CONFIG/KUNGFU_CONFIG is set and the default file does not exist, DefaultConfig is returned.
+// If no explicit customPath or DOJO_CONFIG is set and the default file does not exist, DefaultConfig is returned.
 func Load(customPath string) (*Config, error) {
-	explicit := customPath != "" || os.Getenv("DOJO_CONFIG") != "" || os.Getenv("KUNGFU_CONFIG") != ""
+	explicit := customPath != "" || os.Getenv("DOJO_CONFIG") != ""
 	path := ResolveConfigPath(customPath)
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -244,9 +222,6 @@ func Load(customPath string) (*Config, error) {
 	}
 	if _, ok := cfg.Catalogs["dojo"]; !ok || cfg.Catalogs["dojo"] == "" {
 		cfg.Catalogs["dojo"] = DefaultDojoGitHubCatalog
-	}
-	if _, ok := cfg.Catalogs["kungfu"]; !ok || cfg.Catalogs["kungfu"] == "" {
-		cfg.Catalogs["kungfu"] = DefaultGitHubCatalog
 	}
 	if _, ok := cfg.Catalogs["gemini-skills"]; !ok || cfg.Catalogs["gemini-skills"] == "" {
 		cfg.Catalogs["gemini-skills"] = DefaultGeminiSkillsCatalog

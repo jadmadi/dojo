@@ -197,7 +197,7 @@ func (a *App) RunStatus(args []string) int {
 		}
 		return ExitSuccess
 	default: // OutputModeHuman
-		_, _ = fmt.Fprintf(a.Stdout, "KungFu Status\n")
+		_, _ = fmt.Fprintf(a.Stdout, "Dojo Status\n")
 		if !globalFlag {
 			_, _ = fmt.Fprintf(a.Stdout, "Workspace: %s\n\n", wsDir)
 

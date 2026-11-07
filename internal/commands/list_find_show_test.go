@@ -39,12 +39,12 @@ func setupTestCatalogServer(t *testing.T) *httptest.Server {
 			"$schema": "https://schemas.agentskills.io/discovery/0.2.0/schema.json",
 			"skills": [
 				{
-					"name": "kungfu",
+					"name": "dojo",
 					"type": "skill-md",
 					"description": "Agent skills gateway and discovery hybrid tool",
 					"category": "agents",
 					"tags": ["gateway", "discovery"],
-					"url": "https://skills.danicat.dev/agents/kungfu/SKILL.md",
+					"url": "https://raw.githubusercontent.com/jadmadi/dojo/main/skills/dojo/SKILL.md",
 					"digest": "sha256:123"
 				},
 				{
@@ -53,14 +53,14 @@ func setupTestCatalogServer(t *testing.T) *httptest.Server {
 					"description": "Go doctor",
 					"category": "coding",
 					"tags": ["go", "linter"],
-					"url": "https://skills.danicat.dev/coding/godoctor/SKILL.md",
+					"url": "https://example.com/coding/godoctor/SKILL.md",
 					"digest": "sha256:456"
 				}
 			]
 		}`))
 	}))
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("KUNGFU_URL", server.URL)
+	t.Setenv("DOJO_URL", server.URL)
 	return server
 }
 
@@ -82,8 +82,8 @@ func TestRunList(t *testing.T) {
 				if !strings.Contains(out, "AVAILABLE SKILLS") {
 					t.Errorf("list human missing header: %s", out)
 				}
-				if !strings.Contains(out, "kungfu") {
-					t.Errorf("list human missing kungfu skill: %s", out)
+				if !strings.Contains(out, "dojo") {
+					t.Errorf("list human missing dojo skill: %s", out)
 				}
 				if !strings.Contains(out, "EXAMPLES:") {
 					t.Errorf("list human missing EXAMPLES section: %s", out)
@@ -104,8 +104,8 @@ func TestRunList(t *testing.T) {
 				if !strings.Contains(out, "AVAILABLE SKILLS") {
 					t.Errorf("filtered list missing header: %s", out)
 				}
-				if !strings.Contains(out, "kungfu") {
-					t.Errorf("filtered list missing kungfu: %s", out)
+				if !strings.Contains(out, "dojo") {
+					t.Errorf("filtered list missing dojo: %s", out)
 				}
 			},
 		},
@@ -137,8 +137,8 @@ func TestRunList(t *testing.T) {
 			args:     []string{"list", "--raw"},
 			wantCode: ExitSuccess,
 			checkOut: func(t *testing.T, out string) {
-				if !strings.Contains(out, "kungfu") {
-					t.Errorf("list raw missing kungfu item: %s", out)
+				if !strings.Contains(out, "dojo") {
+					t.Errorf("list raw missing dojo item: %s", out)
 				}
 			},
 		},
@@ -180,24 +180,24 @@ func TestRunFind(t *testing.T) {
 				if !strings.Contains(out, "SEARCH RESULTS") {
 					t.Errorf("expected SEARCH RESULTS in find results, got: %s", out)
 				}
-				if !strings.Contains(out, "kungfu") {
-					t.Errorf("expected kungfu in find results, got: %s", out)
+				if !strings.Contains(out, "dojo") {
+					t.Errorf("expected dojo in find results, got: %s", out)
 				}
 			},
 		},
 		{
 			name:     "find with limit shorthand",
-			args:     []string{"find", "kungfu", "-n", "3"},
+			args:     []string{"find", "dojo", "-n", "3"},
 			wantCode: ExitSuccess,
 			checkOut: func(t *testing.T, out string) {
-				if !strings.Contains(out, "kungfu") {
-					t.Errorf("expected kungfu in find results with -n, got: %s", out)
+				if !strings.Contains(out, "dojo") {
+					t.Errorf("expected dojo in find results with -n, got: %s", out)
 				}
 			},
 		},
 		{
 			name:     "find json output",
-			args:     []string{"find", "kungfu", "--json"},
+			args:     []string{"find", "dojo", "--json"},
 			wantCode: ExitSuccess,
 			checkOut: func(t *testing.T, out string) {
 				var res []struct {
@@ -237,10 +237,10 @@ func TestRunShow(t *testing.T) {
 		wantSub  string
 	}{
 		{"show missing arg", []string{"show"}, ExitUsage, ""},
-		{"show single skill human default", []string{"show", "kungfu"}, ExitSuccess, "SKILL: kungfu"},
-		{"show skill raw", []string{"show", "kungfu", "--raw"}, ExitSuccess, "kungfu\tagents"},
-		{"show skill json", []string{"show", "kungfu", "--json"}, ExitSuccess, "\"name\": \"kungfu\""},
-		{"show multiple skills", []string{"show", "kungfu", "godoctor"}, ExitSuccess, "SKILL: kungfu"},
+		{"show single skill human default", []string{"show", "dojo"}, ExitSuccess, "SKILL: dojo"},
+		{"show skill raw", []string{"show", "dojo", "--raw"}, ExitSuccess, "dojo\tagents"},
+		{"show skill json", []string{"show", "dojo", "--json"}, ExitSuccess, "\"name\": \"dojo\""},
+		{"show multiple skills", []string{"show", "dojo", "godoctor"}, ExitSuccess, "SKILL: dojo"},
 	}
 
 	for _, tt := range tests {
@@ -357,12 +357,12 @@ uv run scripts/not_bundled.py
 	}))
 	defer server.Close()
 	serverURL = server.URL
-	t.Setenv("KUNGFU_URL", server.URL+"/.well-known/agent-skills/index.json")
+	t.Setenv("DOJO_URL", server.URL+"/.well-known/agent-skills/index.json")
 
 	// Seed a stale cache entry for doconlyskill to verify skill-md ignores stale cache scripts
 	homeDir, err := os.UserHomeDir()
 	if err == nil && homeDir != "" {
-		staleScriptDir := filepath.Join(homeDir, ".cache", "kungfu", "skills", "doconlyskill", "scripts")
+		staleScriptDir := filepath.Join(homeDir, ".cache", "dojo", "skills", "doconlyskill", "scripts")
 		_ = os.MkdirAll(staleScriptDir, 0755)
 		_ = os.WriteFile(filepath.Join(staleScriptDir, "stale.py"), []byte("print('stale')\n"), 0644)
 	}

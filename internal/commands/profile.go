@@ -477,7 +477,7 @@ func (a *App) runProfileSync(args []string) int {
 	fs := flag.NewFlagSet("profile sync", flag.ContinueOnError)
 	fs.SetOutput(a.Stderr)
 	var dirFlag, repoFlag string
-	var globalFlag, pushFlag, pullOnlyFlag, jsonFlag, rawFlag bool
+	var globalFlag, pushFlag, pullOnlyFlag, forceFlag, jsonFlag, rawFlag bool
 
 	fs.StringVar(&dirFlag, "dir", "", "Target directory or Git repository path (default: current directory or ~ with -g)")
 	fs.StringVar(&dirFlag, "d", "", "Target directory or Git repository path (shorthand)")
@@ -487,6 +487,8 @@ func (a *App) runProfileSync(args []string) int {
 	fs.BoolVar(&globalFlag, "g", false, "Sync global profile (shorthand)")
 	fs.BoolVar(&pushFlag, "push", false, "Commit and push skills to the remote Git repository")
 	fs.BoolVar(&pullOnlyFlag, "pull", false, "Pull from remote registry without pushing local changes back")
+	fs.BoolVar(&forceFlag, "force", false, "Skip pre-push security/secret scan")
+	fs.BoolVar(&forceFlag, "f", false, "Skip pre-push security/secret scan (shorthand)")
 	fs.BoolVar(&jsonFlag, "json", false, "Output in JSON format")
 	fs.BoolVar(&rawFlag, "raw", false, "Output in raw tab-separated format")
 
@@ -557,6 +559,9 @@ func (a *App) runProfileSync(args []string) int {
 		if effectiveGlobal {
 			pushArgs = append(pushArgs, "-g")
 		}
+		if forceFlag {
+			pushArgs = append(pushArgs, "--force")
+		}
 		var pOut, pErr bytes.Buffer
 		subApp := *a
 		subApp.Stdout = &pOut
@@ -624,7 +629,7 @@ func (a *App) runProfilePush(args []string) int {
 	fs := flag.NewFlagSet("profile push", flag.ContinueOnError)
 	fs.SetOutput(a.Stderr)
 	var repoFlag string
-	var allFlag, globalFlag, jsonFlag, rawFlag bool
+	var allFlag, globalFlag, forceFlag, jsonFlag, rawFlag bool
 
 	fs.StringVar(&repoFlag, "repo", "", "Target GitHub repository (github:owner/repo) or local profile directory")
 	fs.StringVar(&repoFlag, "r", "", "Target GitHub repository or directory (shorthand)")
@@ -632,6 +637,8 @@ func (a *App) runProfilePush(args []string) int {
 	fs.BoolVar(&allFlag, "a", false, "Push all installed skills (shorthand)")
 	fs.BoolVar(&globalFlag, "global", false, "Search global scope first")
 	fs.BoolVar(&globalFlag, "g", false, "Search global scope first (shorthand)")
+	fs.BoolVar(&forceFlag, "force", false, "Skip pre-push security/secret scan")
+	fs.BoolVar(&forceFlag, "f", false, "Skip pre-push security/secret scan (shorthand)")
 	fs.BoolVar(&jsonFlag, "json", false, "Output in JSON format")
 	fs.BoolVar(&rawFlag, "raw", false, "Output in raw tab-separated format")
 
@@ -765,6 +772,19 @@ func (a *App) runProfilePush(args []string) int {
 			return ExitNotFound
 		}
 		items = append(items, locatedItem{name: name, dir: dir, cleanup: cleanup})
+	}
+
+	// Pre-push security & secret scan (G-03) unless --force is explicitly passed
+	if !forceFlag {
+		for _, it := range items {
+			findings := ScanDirectorySecurity(it.name, it.dir)
+			if len(findings) > 0 {
+				for _, f := range findings {
+					_, _ = fmt.Fprintf(a.Stderr, "error: pre-push security scan blocked skill %q: %s (use --force to override)\n", it.name, f.Message)
+				}
+				return ExitGeneral
+			}
+		}
 	}
 
 	// Determine whether targetSpec is a local directory or a remote GitHub repository

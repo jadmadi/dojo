@@ -26,13 +26,13 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	tempHome, err := os.MkdirTemp("", "kungfu-state-test-*")
+	tempHome, err := os.MkdirTemp("", "dojo-state-test-*")
 	if err == nil {
 		_ = os.Setenv("HOME", tempHome)
-		_ = os.Setenv("KUNGFU_CONFIG_DIR", filepath.Join(tempHome, ".config", "kungfu"))
-		_ = os.Setenv("KUNGFU_STATE_PATH", filepath.Join(tempHome, ".config", "kungfu", "state.json"))
-		_ = os.Setenv("KUNGFU_CONFIG", "")
-		_ = os.Setenv("KUNGFU_TELEMETRY", "0")
+		_ = os.Setenv("DOJO_CONFIG_DIR", filepath.Join(tempHome, ".config", "dojo"))
+		_ = os.Setenv("DOJO_STATE_PATH", filepath.Join(tempHome, ".config", "dojo", "state.json"))
+		_ = os.Setenv("DOJO_CONFIG", "")
+		_ = os.Setenv("DOJO_TELEMETRY", "0")
 		_ = os.Setenv("DO_NOT_TRACK", "")
 	}
 	code := m.Run()

@@ -37,14 +37,14 @@ func TestMain(m *testing.M) {
 		_, _ = w.Write([]byte(`{"$schema":"https://schemas.agentskills.io/discovery/0.2.0/schema.json","skills":[]}`))
 	}))
 
-	tempHome, err := os.MkdirTemp("", "kungfu-cmd-test-home-*")
+	tempHome, err := os.MkdirTemp("", "dojo-cmd-test-home-*")
 	if err == nil {
 		_ = os.Setenv("HOME", tempHome)
-		_ = os.Setenv("KUNGFU_CONFIG_DIR", filepath.Join(tempHome, ".config", "kungfu"))
-		_ = os.Setenv("KUNGFU_STATE_PATH", filepath.Join(tempHome, ".config", "kungfu", "state.json"))
-		_ = os.Setenv("KUNGFU_CONFIG", "")
-		_ = os.Setenv("KUNGFU_URL", defaultServer.URL)
-		_ = os.Setenv("KUNGFU_TELEMETRY", "0")
+		_ = os.Setenv("DOJO_CONFIG_DIR", filepath.Join(tempHome, ".config", "dojo"))
+		_ = os.Setenv("DOJO_STATE_PATH", filepath.Join(tempHome, ".config", "dojo", "state.json"))
+		_ = os.Setenv("DOJO_CONFIG", "")
+		_ = os.Setenv("DOJO_URL", defaultServer.URL)
+		_ = os.Setenv("DOJO_TELEMETRY", "0")
 		_ = os.Setenv("DO_NOT_TRACK", "")
 	}
 	code := m.Run()
@@ -112,8 +112,8 @@ func TestGlobalHelpAndVersion(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Point KUNGFU_URL to an unreachable port to prove help never fetches the remote catalog.
-			t.Setenv("KUNGFU_URL", "http://127.0.0.1:1/index.json")
+			// Point DOJO_URL to an unreachable port to prove help never fetches the remote catalog.
+			t.Setenv("DOJO_URL", "http://127.0.0.1:1/index.json")
 			t.Setenv("HOME", t.TempDir())
 			var stdout, stderr bytes.Buffer
 			code := Run(tt.args, &stdout, &stderr)
@@ -153,7 +153,7 @@ func TestFlagParsingEdgeCases(t *testing.T) {
 		},
 		{
 			name:       "missing value for trailing subcommand flag",
-			args:       []string{"load", "kungfu", "-p"},
+			args:       []string{"load", "dojo", "-p"},
 			wantCode:   ExitUsage,
 			wantStderr: "flag needs an argument: -p",
 		},
@@ -177,7 +177,7 @@ func TestFlagParsingEdgeCases(t *testing.T) {
 		},
 		{
 			name:       "find rejects limit less than 1",
-			args:       []string{"find", "kungfu", "-n", "0"},
+			args:       []string{"find", "dojo", "-n", "0"},
 			wantCode:   ExitUsage,
 			wantStderr: "limit must be >= 1",
 		},
@@ -219,11 +219,11 @@ func TestDidYouMeanSuggestions(t *testing.T) {
 			"$schema": "https://schemas.agentskills.io/discovery/0.2.0/schema.json",
 			"skills": [
 				{
-					"name": "kungfu",
+					"name": "dojo",
 					"type": "skill-md",
 					"description": "Agent skills gateway",
 					"category": "agents",
-					"url": "https://skills.danicat.dev/agents/kungfu/SKILL.md",
+					"url": "https://raw.githubusercontent.com/jadmadi/dojo/main/skills/dojo/SKILL.md",
 					"digest": "sha256:345678"
 				},
 				{
@@ -231,7 +231,7 @@ func TestDidYouMeanSuggestions(t *testing.T) {
 					"type": "skill-md",
 					"description": "Go doctor",
 					"category": "coding",
-					"url": "https://skills.danicat.dev/coding/godoctor/SKILL.md",
+					"url": "https://example.com/coding/godoctor/SKILL.md",
 					"digest": "sha256:123456"
 				},
 				{
@@ -239,7 +239,7 @@ func TestDidYouMeanSuggestions(t *testing.T) {
 					"type": "skill-md",
 					"description": "Tech writer",
 					"category": "writing",
-					"url": "https://skills.danicat.dev/writing/tech-writer/SKILL.md",
+					"url": "https://example.com/writing/tech-writer/SKILL.md",
 					"digest": "sha256:234567"
 				},
 				{
@@ -247,7 +247,7 @@ func TestDidYouMeanSuggestions(t *testing.T) {
 					"type": "skill-md",
 					"description": "Develop AI-powered applications using Genkit in Go",
 					"category": "coding",
-					"url": "https://skills.danicat.dev/coding/developing-genkit-go/SKILL.md",
+					"url": "https://example.com/coding/developing-genkit-go/SKILL.md",
 					"digest": "sha256:456781"
 				},
 				{
@@ -255,7 +255,7 @@ func TestDidYouMeanSuggestions(t *testing.T) {
 					"type": "skill-md",
 					"description": "Develop AI-powered applications using Genkit in Node.js/TypeScript",
 					"category": "coding",
-					"url": "https://skills.danicat.dev/coding/developing-genkit-js/SKILL.md",
+					"url": "https://example.com/coding/developing-genkit-js/SKILL.md",
 					"digest": "sha256:456782"
 				},
 				{
@@ -263,7 +263,7 @@ func TestDidYouMeanSuggestions(t *testing.T) {
 					"type": "skill-md",
 					"description": "Develop AI-powered applications using Genkit in Python",
 					"category": "coding",
-					"url": "https://skills.danicat.dev/coding/developing-genkit-python/SKILL.md",
+					"url": "https://example.com/coding/developing-genkit-python/SKILL.md",
 					"digest": "sha256:456783"
 				},
 				{
@@ -271,7 +271,7 @@ func TestDidYouMeanSuggestions(t *testing.T) {
 					"type": "skill-md",
 					"description": "Generates code and provides documentation for the Genkit Dart SDK",
 					"category": "coding",
-					"url": "https://skills.danicat.dev/coding/developing-genkit-dart/SKILL.md",
+					"url": "https://example.com/coding/developing-genkit-dart/SKILL.md",
 					"digest": "sha256:456784"
 				},
 				{
@@ -280,14 +280,14 @@ func TestDidYouMeanSuggestions(t *testing.T) {
 					"description": "Generative music and audio synthesis from text prompts or reference images",
 					"category": "media",
 					"tags": ["audio", "music", "lyria"],
-					"url": "https://skills.danicat.dev/media/lyria/SKILL.md",
+					"url": "https://example.com/media/lyria/SKILL.md",
 					"digest": "sha256:567890"
 				}
 			]
 		}`))
 	}))
 	defer server.Close()
-	t.Setenv("KUNGFU_URL", server.URL)
+	t.Setenv("DOJO_URL", server.URL)
 
 	tests := []struct {
 		name       string
@@ -296,11 +296,11 @@ func TestDidYouMeanSuggestions(t *testing.T) {
 		wantStderr []string
 	}{
 		{
-			name:     "typo kungfuu suggests kungfu with description",
-			args:     []string{"load", "kungfuu"},
+			name:     "typo dojoo suggests dojo with description",
+			args:     []string{"load", "dojoo"},
 			wantCode: ExitNotFound,
 			wantStderr: []string{
-				"dojo load kungfu",
+				"dojo load dojo",
 				"# Agent skills gateway",
 			},
 		},
@@ -340,7 +340,7 @@ func TestDidYouMeanSuggestions(t *testing.T) {
 			args:     []string{"show", "agents"},
 			wantCode: ExitNotFound,
 			wantStderr: []string{
-				"dojo show kungfu",
+				"dojo show dojo",
 				"dojo find agents",
 			},
 		},
@@ -439,7 +439,7 @@ func TestLoadLocalSubpathAndCorruptDigestForceGuard(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	t.Setenv("KUNGFU_URL", server.URL)
+	t.Setenv("DOJO_URL", server.URL)
 
 	// 1. Prime index cache by running list
 	var stdout, stderr bytes.Buffer

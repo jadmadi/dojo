@@ -69,7 +69,7 @@ type SkillRecord struct {
 	Repo            string     `json:"repo,omitempty"`    // e.g. "https://github.com/owner/repo" or "owner/repo"
 	Ref             string     `json:"ref,omitempty"`     // e.g. "main", "v1.0.0"
 	RawURL          string     `json:"raw_url,omitempty"` // e.g. "https://raw.githubusercontent.com/owner/repo/main/path/SKILL.md"
-	Catalog         string     `json:"catalog,omitempty"` // Catalog name (e.g. "kungfu", "default")
+	Catalog         string     `json:"catalog,omitempty"` // Catalog name (e.g. "dojo", "default")
 	Path            string     `json:"path"`
 	Version         string     `json:"version,omitempty"`
 	Digest          string     `json:"digest,omitempty"`           // Current/reconciled digest
@@ -114,7 +114,7 @@ type TelemetryDelta struct {
 	Learns       int    `json:"learns"`
 }
 
-// State represents the complete root manifest in ~/.config/kungfu/state.json.
+// State represents the complete root manifest in ~/.config/dojo/state.json.
 type State struct {
 	SchemaVersion string                     `json:"schema_version"`
 	UpdatedAt     time.Time                  `json:"updated_at"`
@@ -127,9 +127,8 @@ type State struct {
 	mu              sync.RWMutex    `json:"-"`
 }
 
-const DefaultRemoteCatalogURL = "https://skills.danicat.dev/.well-known/agent-skills/index.json"
+const DefaultRemoteCatalogURL = "https://raw.githubusercontent.com/jadmadi/dojo/main/.well-known/agent-skills/index.json"
 const DefaultDojoGitHubCatalog = "jadmadi/dojo"
-const DefaultGitHubCatalog = "danicat/kungfu"
 
 // NewState creates an initialized State struct.
 func NewState() *State {
@@ -161,45 +160,22 @@ func NewState() *State {
 		AddedAt:   now,
 		UpdatedAt: now,
 	}
-	s.Catalogs["kungfu"] = CatalogRecord{
-		Name:      "kungfu",
-		Type:      CatalogTypeGitHub,
-		Source:    DefaultGitHubCatalog,
-		URL:       "https://github.com/" + DefaultGitHubCatalog,
-		Ref:       "main",
-		AddedAt:   now,
-		UpdatedAt: now,
-	}
 	return s
 }
 
-// DefaultStateFilePath returns ~/.config/dojo/state.json (or ~/.config/kungfu/state.json fallback),
-// or respects DOJO_STATE_PATH / KUNGFU_STATE_PATH / DOJO_CONFIG_DIR / KUNGFU_CONFIG_DIR.
+// DefaultStateFilePath returns ~/.config/dojo/state.json, or respects DOJO_STATE_PATH / DOJO_CONFIG_DIR.
 func DefaultStateFilePath() string {
 	if statePath := os.Getenv("DOJO_STATE_PATH"); statePath != "" {
 		return statePath
 	}
-	if statePath := os.Getenv("KUNGFU_STATE_PATH"); statePath != "" {
-		return statePath
-	}
 	if configDir := os.Getenv("DOJO_CONFIG_DIR"); configDir != "" {
-		return filepath.Join(configDir, "state.json")
-	}
-	if configDir := os.Getenv("KUNGFU_CONFIG_DIR"); configDir != "" {
 		return filepath.Join(configDir, "state.json")
 	}
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
 		panic(fmt.Sprintf("dojo: unable to determine user home directory: %v", err))
 	}
-	dojoState := filepath.Join(home, ".config", "dojo", "state.json")
-	kungfuState := filepath.Join(home, ".config", "kungfu", "state.json")
-	if _, err := os.Stat(dojoState); err != nil {
-		if _, kErr := os.Stat(kungfuState); kErr == nil {
-			return kungfuState
-		}
-	}
-	return dojoState
+	return filepath.Join(home, ".config", "dojo", "state.json")
 }
 
 // LoadState loads the State from the specified file path, or returns a new State if it does not exist.
@@ -258,19 +234,6 @@ func LoadState(filePath string) (*State, error) {
 			UpdatedAt: now,
 		}
 	}
-	if _, ok := s.Catalogs["kungfu"]; !ok {
-		now := time.Now().UTC()
-		s.Catalogs["kungfu"] = CatalogRecord{
-			Name:      "kungfu",
-			Type:      CatalogTypeGitHub,
-			Source:    DefaultGitHubCatalog,
-			URL:       "https://github.com/" + DefaultGitHubCatalog,
-			Ref:       "main",
-			AddedAt:   now,
-			UpdatedAt: now,
-		}
-	}
-
 	return &s, nil
 }
 

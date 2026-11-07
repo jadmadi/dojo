@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-07
+
+### Added
+- **Pre-Push Secret & Security Gate (`dojo profile push` / `sync`)**: Automatically scans packaged skill directories for hardcoded secrets (`ghp_`, `github_pat_`, `sk-`, `AIza`, `AKIA`, `xox`, private keys), prompt-injection overrides, and unsafe remote execution pipes before committing or pushing to GitHub (override with `--force`).
+- **Complete MCP Server Surface (`dojo_sync` & `dojo_profile`)**: Added `dojo_sync` and `dojo_profile` tools (plus `--skills`, `--security`, and `-g` parameters on `dojo_doctor`) to `dojo mcp`.
+- **Archive Extraction in `dojo upgrade`**: Self-upgrade now extracts `.tar.gz` (Linux/macOS) and `.zip` (Windows) release archives published by GoReleaser in addition to raw binaries.
+- **GitHub Actions CI & GoReleaser Workflows**: Added `.github/workflows/ci.yml` and `.github/workflows/release.yml` for automated multi-OS binary distribution.
+- **Automated `.well-known` Digest Verification Test**: Added `TestWellKnownIndexDigestsMatchSkills` ensuring `.well-known/agent-skills/index.json` SHA-256 digests always match `skills/*/SKILL.md`.
+
+### Changed
+- **Blocking Security Audit (`dojo doctor --security`)**: Security and secret findings now emit `"error"` severity and exit with code `1` (`ExitGeneral`) so CI pipelines fail on security violations.
+- **Standalone Dojo Catalog & Config Defaults**: Default catalog (`DOJO_URL`) now points to `https://raw.githubusercontent.com/jadmadi/dojo/main/.well-known/agent-skills/index.json` with zero legacy external catalog coupling.
+
 ## [1.2.0] - 2026-11-07
 
 ### Added
@@ -87,7 +100,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 7-Pillar agent skills discovery, search, and JIT loading.
 - Native support for Antigravity (Desktop & CLI) across sync detection, projection, and CLI.
 
-[Unreleased]: https://github.com/jadmadi/dojo/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/jadmadi/dojo/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/jadmadi/dojo/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/jadmadi/dojo/compare/v1.1.8...v1.2.0
 [1.1.8]: https://github.com/jadmadi/dojo/compare/v1.1.7...v1.1.8
 [1.1.7]: https://github.com/jadmadi/dojo/compare/v1.1.6...v1.1.7

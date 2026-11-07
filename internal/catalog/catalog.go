@@ -32,7 +32,7 @@ import (
 )
 
 // DefaultRemoteURL is the default endpoint for the skills catalog manifest.
-const DefaultRemoteURL = "https://skills.danicat.dev/.well-known/agent-skills/index.json"
+const DefaultRemoteURL = "https://raw.githubusercontent.com/jadmadi/dojo/main/.well-known/agent-skills/index.json"
 
 const defaultRemoteURL = DefaultRemoteURL
 
@@ -216,10 +216,6 @@ func NewCatalog(opts ...Option) (*Catalog, error) {
 	if envURL := os.Getenv("DOJO_URL"); envURL != "" {
 		remote = ResolveCatalogURL(envURL)
 	} else if envURL := os.Getenv("DOJO_REMOTE_URL"); envURL != "" {
-		remote = ResolveCatalogURL(envURL)
-	} else if envURL := os.Getenv("KUNGFU_URL"); envURL != "" {
-		remote = ResolveCatalogURL(envURL)
-	} else if envURL := os.Getenv("KUNGFU_REMOTE_URL"); envURL != "" {
 		remote = ResolveCatalogURL(envURL)
 	}
 
@@ -670,7 +666,6 @@ func (c *Catalog) discoverLocalSkillsLocked() {
 					existing.Tags = ParseTags(fm.Metadata["tags"])
 				}
 				isCachePath := strings.Contains(filepath.ToSlash(skillFile), "/.cache/dojo/skills/") ||
-					strings.Contains(filepath.ToSlash(skillFile), "/.cache/kungfu/skills/") ||
 					(cacheSkillsDir != "" && IsPathContained(cacheSkillsDir, skillFile))
 				if existing.Path == "" && !isCachePath {
 					existing.Path = skillFile
@@ -746,7 +741,7 @@ func (c *Catalog) resolveCacheRoot() string {
 
 // LoadContent retrieves the full raw markdown content for an item.
 // It loads in-memory bodies or streams live from remote URLs.
-// Kungfu does not load skills from local filesystem paths; local paths are only used for installation via learn.
+// Dojo does not load skills from arbitrary local filesystem paths; local paths are only used for installation via learn.
 func (c *Catalog) LoadContent(item *Item) (string, error) {
 	if item == nil {
 		return "", errors.New("cannot load content for nil item")

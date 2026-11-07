@@ -88,7 +88,7 @@ func (a *App) RunForget(args []string) int {
 			results = append(results, ForgetResult{
 				Name:    name,
 				Status:  "error",
-				Message: fmt.Sprintf("skill %q is a custom/external skill (not learned by kungfu). Kungfu only uninstalls skills it learned; pass -f/--force to remove it anyway.", name),
+				Message: fmt.Sprintf("skill %q is a custom/external skill (not learned by dojo). Dojo only uninstalls skills it learned; pass -f/--force to remove it anyway.", name),
 			})
 			continue
 		}
@@ -173,7 +173,7 @@ func (a *App) RunForget(args []string) int {
 					if len(suggs) > 0 {
 						_, _ = fmt.Fprintln(a.Stderr, "\nDid you mean:")
 						for _, s := range suggs {
-							_, _ = fmt.Fprintf(a.Stderr, "  - kungfu forget %s\n", s)
+							_, _ = fmt.Fprintf(a.Stderr, "  - dojo forget %s\n", s)
 						}
 					}
 				}
