@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.6] - 2026-11-07
+
 ### Added
 - Actionable `EXAMPLES` block appended to `dojo list` output detailing `dojo profile push`, `dojo show`, `dojo toc`, `dojo load`, and `dojo learn`.
 - Concrete usage examples documented after every argument and flag in `dojo list` output and CLI help.
@@ -64,7 +66,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 7-Pillar agent skills discovery, search, and JIT loading.
 - Native support for Antigravity (Desktop & CLI) across sync detection, projection, and CLI.
 
-[Unreleased]: https://github.com/jadmadi/dojo/compare/v1.1.5...HEAD
+[Unreleased]: https://github.com/jadmadi/dojo/compare/v1.1.6...HEAD
+[1.1.6]: https://github.com/jadmadi/dojo/compare/v1.1.5...v1.1.6
 [1.1.5]: https://github.com/jadmadi/dojo/compare/v1.1.4...v1.1.5
 [1.1.4]: https://github.com/jadmadi/dojo/compare/v1.1.3...v1.1.4
 [1.1.3]: https://github.com/jadmadi/dojo/compare/v1.1.2...v1.1.3

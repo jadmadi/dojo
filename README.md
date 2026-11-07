@@ -2,7 +2,7 @@
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/jadmadi/dojo.svg)](https://pkg.go.dev/github.com/jadmadi/dojo)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/badge/release-v1.1.5-green.svg)](https://github.com/jadmadi/dojo/releases)
+[![Release](https://img.shields.io/badge/release-v1.1.6-green.svg)](https://github.com/jadmadi/dojo/releases)
 
 `dojo` is a static Go command-line tool and Model Context Protocol (MCP) server for finding, streaming, auditing, and synchronizing **Agent Skills** (`SKILL.md`) across local workstations and cloud VMs (`agy-vm`). Coding agents can inspect a skill's Table of Contents (`dojo toc`), stream individual `#sections` (`dojo load <skill>#<section>`) to save 70–90% of context tokens, maintain a portable `skills.json` manifest (`dojo profile`), and bi-directionally reconcile and project skills across **Antigravity (Desktop & CLI)**, Claude Code, Cursor, Windsurf, OpenCode, and Sila (`dojo sila` / `dojo sync`).
 
