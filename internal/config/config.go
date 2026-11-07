@@ -49,9 +49,34 @@ type TelemetryConfig struct {
 
 // Config represents the user-level configuration (~/.config/dojo/config.yaml or config.json).
 type Config struct {
-	Load      LoadConfig        `json:"load" yaml:"load,omitempty"`
-	Telemetry TelemetryConfig   `json:"telemetry" yaml:"telemetry,omitempty"`
-	Catalogs  map[string]string `json:"catalogs,omitempty" yaml:"catalogs,omitempty"`
+	Load         LoadConfig        `json:"load" yaml:"load,omitempty"`
+	Telemetry    TelemetryConfig   `json:"telemetry" yaml:"telemetry,omitempty"`
+	Catalogs     map[string]string `json:"catalogs,omitempty" yaml:"catalogs,omitempty"`
+	ProfileRepo  string            `json:"profile_repo,omitempty" yaml:"profile_repo,omitempty"`
+	ProfileScope string            `json:"profile_scope,omitempty" yaml:"profile_scope,omitempty"`
+}
+
+// GetProfileRepo returns the linked personal skills registry repository or directory path,
+// checking DOJO_PROFILE_REPO first.
+func (c *Config) GetProfileRepo() string {
+	if env := strings.TrimSpace(os.Getenv("DOJO_PROFILE_REPO")); env != "" {
+		return env
+	}
+	if c == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.ProfileRepo)
+}
+
+// SetProfileRepo sets the linked personal skills registry repository and scope.
+func (c *Config) SetProfileRepo(repo, scope string) {
+	if c == nil {
+		return
+	}
+	c.ProfileRepo = strings.TrimSpace(repo)
+	if scope != "" {
+		c.ProfileScope = scope
+	}
 }
 
 // DefaultConfig returns the default configuration (telemetry strictly opt-in / false by default).

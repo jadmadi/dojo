@@ -162,3 +162,46 @@ func TestConfig_ResolvePath(t *testing.T) {
 		t.Errorf("expected env override, got %s", r)
 	}
 }
+
+func TestConfig_ProfileRepo(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("DOJO_CONFIG_DIR", tmpDir)
+	t.Setenv("KUNGFU_CONFIG_DIR", tmpDir)
+	t.Setenv("DOJO_PROFILE_REPO", "")
+
+	cfg := config.DefaultConfig()
+	if r := cfg.GetProfileRepo(); r != "" {
+		t.Errorf("expected empty default profile repo, got %q", r)
+	}
+
+	cfg.SetProfileRepo("github:jadmadi/my-skills", "global")
+	if r := cfg.GetProfileRepo(); r != "github:jadmadi/my-skills" {
+		t.Errorf("expected github:jadmadi/my-skills, got %q", r)
+	}
+	if cfg.ProfileScope != "global" {
+		t.Errorf("expected global scope, got %q", cfg.ProfileScope)
+	}
+
+	savedPath, err := config.Save("", cfg)
+	if err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	loaded, err := config.Load(savedPath)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if r := loaded.GetProfileRepo(); r != "github:jadmadi/my-skills" {
+		t.Errorf("expected loaded profile_repo github:jadmadi/my-skills, got %q", r)
+	}
+	if loaded.ProfileScope != "global" {
+		t.Errorf("expected loaded profile_scope global, got %q", loaded.ProfileScope)
+	}
+
+	// Env override
+	t.Setenv("DOJO_PROFILE_REPO", "github:jadmadi/override-skills")
+	if r := loaded.GetProfileRepo(); r != "github:jadmadi/override-skills" {
+		t.Errorf("expected DOJO_PROFILE_REPO env override, got %q", r)
+	}
+}
+

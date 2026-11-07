@@ -53,7 +53,7 @@ func TestRun_CLI_Basics(t *testing.T) {
 		{"version lowercase -v", []string{"-v"}, ExitSuccess, "dojo version"},
 		{"verbose flag alone", []string{"--verbose"}, ExitSuccess, "dojo version"},
 		{"version command", []string{"version"}, ExitSuccess, "dojo version"},
-		{"help long", []string{"--help"}, ExitSuccess, "profile    <export|apply|sync|push>"},
+		{"help long", []string{"--help"}, ExitSuccess, "profile    <link|sync|pull|push|export|apply>"},
 		{"help short", []string{"-h"}, ExitSuccess, "USAGE:"},
 		{"help command", []string{"help"}, ExitSuccess, "USAGE:"},
 		{"no args", []string{}, ExitUsage, "USAGE:"},

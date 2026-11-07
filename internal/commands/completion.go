@@ -120,7 +120,7 @@ func (a *App) RunComplete(args []string) int {
 		return ExitSuccess
 	case "profile":
 		if len(args) == 2 {
-			for _, p := range []string{"export", "apply", "sync", "push"} {
+			for _, p := range []string{"link", "unlink", "export", "apply", "pull", "sync", "push"} {
 				if strings.HasPrefix(p, cur) {
 					_, _ = fmt.Fprintln(a.Stdout, p)
 				}

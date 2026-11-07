@@ -5,7 +5,7 @@ description: >
   Continuity Engine. Activate this skill to discover skills with hybrid BM25+RRF search,
   inspect Markdown section TOCs (`dojo toc`), JIT load specific #sections or full skills
   with dependency graphs (`dojo load`), bi-directionally synchronize skills across Antigravity/Claude/Cursor/Windsurf/OpenCode/Sila
-  (`dojo sync` / `dojo sila`), push or apply portable `skills.json` profiles and local commands/skills between local machines and `agy-vm` (`dojo profile push|apply|sync`),
+  (`dojo sync` / `dojo sila`), link a Personal Skills Registry and sync portable `skills.json` profiles and local commands/skills between local machines and `agy-vm` (`dojo profile link|sync|pull|push|apply`),
   initialize workspaces (`dojo init --workspace`), scaffold and audit skills (`dojo init` / `dojo doctor`),
   run companion scripts (`dojo run`), or expose Dojo as a native MCP server (`dojo mcp`).
 license: Apache-2.0
@@ -13,7 +13,7 @@ metadata:
   category: agents
   tags: "dojo, gateway, mcp, multi-harness, antigravity, sila, profile, agy-vm, agent-skills, discovery, search, catalog, cli"
   author: Jad Madi (github.com/jadmadi)
-  version: "1.1.8"
+  version: "1.2.0"
   catalog: https://github.com/jadmadi/dojo
 ---
 
@@ -58,23 +58,26 @@ dojo learn godoctor --with-deps --target all
 dojo sila --target antigravity,cursor,claude
 ```
 
-## 3. Agent Guide: Moving Skills & Commands Between Local and Cloud (`agy-vm`)
+## 3. Personal Skills Registry & Local-to-Cloud (`agy-vm`) Continuity
 
-When a user says **"I need skill/command `X` and `Y` in my `agy-vm`"** (or asks to move local skills, Cursor/Windsurf rules, or slash commands to their cloud VM or profile repo):
+Link a GitHub repository as your Personal Skills Registry once, then use `dojo profile sync` or `dojo profile pull` across local workstations and cloud VMs (`agy-vm`):
 
 ```bash
-# 1. On the local workstation: package and push skills, rules (.mdc), or slash commands (.claude/commands/*.md)
-#    directly to the user's profile repository (e.g. github:jadmadi/agy-vm):
-dojo profile push github:jadmadi/agy-vm <x> <y>
+# 1. Link your personal skills registry (once per machine):
+dojo profile link github:jadmadi/agy-vm -g
 
-#    Or push from explicit file/directory paths if they live in custom locations:
+# 2. Two-way sync (reconciles local harnesses, pulls remote skills, updates skills.json, and pushes local skills to GitHub):
+dojo profile sync
+
+# 3. On agy-vm (or any target machine): pull and project all skills from your linked registry:
+dojo profile pull -g
+
+# 4. Push specific skills, list indices, rules (.mdc), or slash commands (.claude/commands/*.md):
+dojo profile push <x> <y>
 dojo profile push github:jadmadi/agy-vm ~/.claude/commands/x.md ~/.agents/skills/y
-
-# 2. On agy-vm (or any target machine): pull and project the updated profile (supports private repos via GITHUB_TOKEN or `gh` CLI):
-dojo profile apply github:jadmadi/agy-vm -g
 ```
 
-What `dojo profile push <repo> <items...>` searches and packages automatically:
+What `dojo profile sync` and `dojo profile push` search and package automatically:
 - **Skill directories** (including `SKILL.md`, `scripts/`, `references/`, `assets/`): `.agents/skills/<name>`, `.gemini/skills/<name>`, `.antigravity/skills/<name>`, `.claude/skills/<name>`, `.opencode/skills/<name>`, `.sila/skills/<name>` (in current workspace and `~/`).
 - **Rules & Slash Commands** (auto-converted into compliant `SKILL.md` packages with frontmatter): `.cursor/rules/<name>.mdc`, `.windsurf/rules/<name>.md`, `.claude/commands/<name>.md`, `.gemini/commands/<name>.md`, `.agents/workflows/<name>.md`, `.windsurf/workflows/<name>.md`.
 - For complex multi-file command migrations, load the full reference guide: `dojo load dojo/references/migration-guide.md`.

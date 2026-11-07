@@ -175,8 +175,10 @@ func LoadManifest(ctx context.Context, pathOrRef string, client *http.Client) (*
 	// 1. Check local filesystem first
 	if info, err := os.Stat(clean); err == nil {
 		targetPath := clean
+		sourceDir := filepath.Dir(clean)
 		if info.IsDir() {
 			targetPath = filepath.Join(clean, DefaultManifestFilename)
+			sourceDir = clean
 		}
 		data, rErr := os.ReadFile(targetPath)
 		if rErr != nil {
@@ -185,6 +187,11 @@ func LoadManifest(ctx context.Context, pathOrRef string, client *http.Client) (*
 		var m SkillsManifest
 		if err := json.Unmarshal(data, &m); err != nil {
 			return nil, fmt.Errorf("invalid skills.json in %s: %w", targetPath, err)
+		}
+		if absDir, aErr := filepath.Abs(sourceDir); aErr == nil {
+			m.SourceRepo = absDir
+		} else {
+			m.SourceRepo = sourceDir
 		}
 		return &m, nil
 	}

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-07
+
+### Added
+- **Personal Skills Registry (`dojo profile link` / `unlink`)**: Link a persistent GitHub repository (`github:<owner>/<repo>`) or directory as your personal skills registry in `~/.config/dojo/config.yaml` (or via `DOJO_PROFILE_REPO`).
+- **Two-Way Registry Continuity (`dojo profile sync`)**: When linked to a personal registry, `dojo profile sync` automatically reconciles local harness skills (`.gemini/skills`, `.claude/skills`, `.cursor/rules`, etc.), pulls any missing skills from the remote registry, updates `skills.json`, projects across harnesses, and pushes local skills back to the registry.
+- **Zero-Argument `dojo profile pull` & `dojo profile push`**: `dojo profile pull` (alias for `apply`) and `dojo profile push` now automatically use the linked personal registry when invoked without a target repository argument, defaulting `dojo profile push` to `--all`.
+- **Fast Local Startup**: Skipped remote catalog network initialization for purely local commands (`init`, `sync`, `doctor`, `telemetry`, `upgrade`, `profile link/unlink/export`).
+
 ## [1.1.8] - 2026-11-07
 
 ### Added
@@ -79,7 +87,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 7-Pillar agent skills discovery, search, and JIT loading.
 - Native support for Antigravity (Desktop & CLI) across sync detection, projection, and CLI.
 
-[Unreleased]: https://github.com/jadmadi/dojo/compare/v1.1.8...HEAD
+[Unreleased]: https://github.com/jadmadi/dojo/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/jadmadi/dojo/compare/v1.1.8...v1.2.0
 [1.1.8]: https://github.com/jadmadi/dojo/compare/v1.1.7...v1.1.8
 [1.1.7]: https://github.com/jadmadi/dojo/compare/v1.1.6...v1.1.7
 [1.1.6]: https://github.com/jadmadi/dojo/compare/v1.1.5...v1.1.6

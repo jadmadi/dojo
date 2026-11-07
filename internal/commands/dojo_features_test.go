@@ -407,4 +407,98 @@ func TestDojo_V118_CliReviewer_Fixes(t *testing.T) {
 	}
 }
 
+func TestProfile_PersonalRegistry_LinkSyncPull(t *testing.T) {
+	server := setupEmptyRemoteCatalogServer(t)
+	defer server.Close()
+
+	// Create a mock "remote registry" directory (simulating a cloned GitHub repo)
+	registryDir := t.TempDir()
+
+	// Machine A (Local Laptop)
+	machineA := t.TempDir()
+	t.Setenv("HOME", machineA)
+	t.Setenv("DOJO_CONFIG_DIR", filepath.Join(machineA, ".config", "dojo"))
+
+	origWD, _ := os.Getwd()
+	_ = os.Chdir(machineA)
+	defer func() { _ = os.Chdir(origWD) }()
+
+	var stdout, stderr bytes.Buffer
+
+	// 1. Link the personal registry with -g
+	code := Run([]string{"profile", "link", registryDir, "-g"}, &stdout, &stderr)
+	if code != ExitSuccess {
+		t.Fatalf("Run(profile link) = %d; stderr: %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Linked personal skills registry") {
+		t.Errorf("unexpected link output:\n%s", stdout.String())
+	}
+
+	// Verify `dojo profile link` without args shows the linked registry
+	stdout.Reset()
+	stderr.Reset()
+	code = Run([]string{"profile", "link"}, &stdout, &stderr)
+	if code != ExitSuccess || !strings.Contains(stdout.String(), registryDir) {
+		t.Fatalf("Run(profile link status) = %d; stdout: %s; stderr: %s", code, stdout.String(), stderr.String())
+	}
+
+	// 2. Create a local skill in Machine A's ~/.gemini/skills/laptop-skill/SKILL.md
+	laptopSkillDir := filepath.Join(machineA, ".gemini", "skills", "laptop-skill")
+	_ = os.MkdirAll(laptopSkillDir, 0755)
+	_ = os.WriteFile(filepath.Join(laptopSkillDir, "SKILL.md"), []byte("---\nname: laptop-skill\ndescription: Created on laptop\n---\n\n# Laptop Skill\n"), 0644)
+
+	// 3. Run `dojo profile sync` on Machine A -> reconciles .gemini/skills into .agents/skills, builds skills.json, and pushes to registryDir!
+	stdout.Reset()
+	stderr.Reset()
+	code = Run([]string{"profile", "sync"}, &stdout, &stderr)
+	if code != ExitSuccess {
+		t.Fatalf("Run(profile sync on Machine A) = %d; stderr: %s", code, stderr.String())
+	}
+
+	// Verify registryDir now has skills/laptop-skill/SKILL.md and skills.json
+	if _, err := os.Stat(filepath.Join(registryDir, "skills", "laptop-skill", "SKILL.md")); err != nil {
+		t.Fatalf("expected laptop-skill to be pushed to registryDir/skills/laptop-skill/SKILL.md: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(registryDir, "skills.json")); err != nil {
+		t.Fatalf("expected skills.json in registryDir: %v", err)
+	}
+
+	// 4. Machine B (Remote VM) -> links the same registry and runs `dojo profile pull` (or `dojo profile sync`)
+	machineB := t.TempDir()
+	t.Setenv("HOME", machineB)
+	t.Setenv("DOJO_CONFIG_DIR", filepath.Join(machineB, ".config", "dojo"))
+	_ = os.Chdir(machineB)
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Run([]string{"profile", "link", registryDir, "-g"}, &stdout, &stderr)
+	if code != ExitSuccess {
+		t.Fatalf("Run(profile link on Machine B) = %d; stderr: %s", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Run([]string{"profile", "pull"}, &stdout, &stderr)
+	if code != ExitSuccess {
+		t.Fatalf("Run(profile pull on Machine B) = %d; stderr: %s", code, stderr.String())
+	}
+
+	// Verify Machine B now has laptop-skill installed in ~/.agents/skills/laptop-skill/SKILL.md and projected to harnesses
+	if _, err := os.Stat(filepath.Join(machineB, ".agents", "skills", "laptop-skill", "SKILL.md")); err != nil {
+		t.Fatalf("expected laptop-skill to be pulled into Machine B ~/.agents/skills: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(machineB, ".gemini", "skills", "laptop-skill", "SKILL.md")); err != nil {
+		t.Fatalf("expected laptop-skill to be projected into Machine B ~/.gemini/skills: %v", err)
+	}
+
+	// 5. Test `dojo profile unlink`
+	stdout.Reset()
+	stderr.Reset()
+	code = Run([]string{"profile", "unlink"}, &stdout, &stderr)
+	if code != ExitSuccess || !strings.Contains(stdout.String(), "Unlinked personal skills registry") {
+		t.Fatalf("Run(profile unlink) = %d; stdout: %s; stderr: %s", code, stdout.String(), stderr.String())
+	}
+}
+
+
 

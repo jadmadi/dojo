@@ -682,25 +682,51 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return app.RunCompletion(cmdArgs)
 	}
 
-	app, err := NewApp(opts, stdout, stderr)
-	if err != nil {
-		// Allow local/offline commands to run with local discovery only if remote catalog is unreachable
-		switch cmdName {
-		case "init", "scaffold", "sync", "sila", "doctor", "lint", "audit", "profile", "__complete", "upgrade", "self-update":
-			localCat, _ := catalog.NewCatalog(catalog.WithRemoteDisabled(), catalog.WithLocalDiscovery(true))
-			cfg, _ := config.Load("")
-			app = &App{
-				Store:      localCat,
-				Searcher:   search.NewEngine(),
-				Stdout:     stdout,
-				Stderr:     stderr,
-				Options:    opts,
-				HTTPClient: &http.Client{Timeout: 30 * time.Second},
-				Config:     cfg,
+	isLocalOnlyCmd := false
+	switch cmdName {
+	case "init", "scaffold", "sync", "sila", "doctor", "lint", "audit", "telemetry", "upgrade", "self-update":
+		isLocalOnlyCmd = true
+	case "profile":
+		if len(cmdArgs) == 0 || cmdArgs[0] == "link" || cmdArgs[0] == "unlink" || cmdArgs[0] == "export" || cmdArgs[0] == "save" {
+			isLocalOnlyCmd = true
+		}
+	}
+
+	var app *App
+	var err error
+	if isLocalOnlyCmd {
+		localCat, _ := catalog.NewCatalog(catalog.WithRemoteDisabled(), catalog.WithLocalDiscovery(true))
+		cfg, _ := config.Load(opts.Config)
+		app = &App{
+			Store:      localCat,
+			Searcher:   search.NewEngine(),
+			Stdout:     stdout,
+			Stderr:     stderr,
+			Options:    opts,
+			HTTPClient: &http.Client{Timeout: 30 * time.Second},
+			Config:     cfg,
+		}
+	} else {
+		app, err = NewApp(opts, stdout, stderr)
+		if err != nil {
+			// Allow local/offline commands to run with local discovery only if remote catalog is unreachable
+			switch cmdName {
+			case "init", "scaffold", "sync", "sila", "doctor", "lint", "audit", "profile", "__complete", "upgrade", "self-update":
+				localCat, _ := catalog.NewCatalog(catalog.WithRemoteDisabled(), catalog.WithLocalDiscovery(true))
+				cfg, _ := config.Load(opts.Config)
+				app = &App{
+					Store:      localCat,
+					Searcher:   search.NewEngine(),
+					Stdout:     stdout,
+					Stderr:     stderr,
+					Options:    opts,
+					HTTPClient: &http.Client{Timeout: 30 * time.Second},
+					Config:     cfg,
+				}
+			default:
+				_, _ = fmt.Fprintf(stderr, "error: %v\n", err)
+				return MapErrorToExitCode(err)
 			}
-		default:
-			_, _ = fmt.Fprintf(stderr, "error: %v\n", err)
-			return MapErrorToExitCode(err)
 		}
 	}
 
@@ -919,19 +945,25 @@ FLAGS:
 		return true
 	case "profile", "manifest":
 		_, _ = fmt.Fprintln(w, `USAGE:
-  dojo profile <export|apply|sync|push> [arguments...] [flags]
+  dojo profile <link|unlink|export|apply|pull|sync|push> [arguments...] [flags]
 
-Manage portable skills.json manifests and migrate skills/commands between local workstations and cloud VMs (agy-vm).
+Manage your personal skills registry, portable skills.json manifests, and bi-directional sync between local workstations and cloud VMs (agy-vm).
 
 SUBCOMMANDS:
+  link [github:owner/repo | dir] [-g]
+      Link a personal GitHub skills registry repository (or view current linked registry).
+      Example: dojo profile link github:jadmadi/agy-vm -g
+  unlink
+      Unlink the configured personal skills registry.
+  sync [github:owner/repo | dir] [--pull] [-g]
+      Bi-directionally synchronize local skills, skills.json, and your linked GitHub registry.
+      Pulls remote skills, reconciles local harnesses, exports skills.json, and pushes local skills to GitHub.
+  pull [source] [-g]   (alias: apply, restore)
+      Pull and install catalogs, skills, and harness projections from your linked registry or a skills.json manifest.
+  push [github:owner/repo | dir] [skill-or-command...] [--all] [-g]
+      Package local skills, Cursor/Windsurf rules (.mdc/.md), or slash commands and push them to your registry.
   export [-o <file>] [-g]
-      Export currently installed skills and active harness targets to skills.json.
-  apply [source] [-g]
-      Install catalogs, learn skills, and project harnesses declared in a local, HTTP, or public/private github:owner/repo skills.json.
-  push <github:owner/repo | dir> <skill-or-command...> [--all] [-g]
-      Package local skills, Cursor/Windsurf rules (.mdc/.md), or slash commands (.claude/commands/*.md, .gemini/commands/*.md) and push them to a profile repo or directory.
-  sync [--dir <path>] [-g] [--push]
-      Reconcile harness edits, apply skills.json, and update skills.json with newly discovered local skills.`)
+      Export currently installed skills and active harness targets to skills.json.`)
 		return true
 	case "completion", "completions":
 		_, _ = fmt.Fprintln(w, `USAGE:
@@ -1108,8 +1140,8 @@ COMMANDS:
              Install skills to workspace or global scope.
   sync       [skill...] [--target <all|claude,cursor,antigravity,windsurf,opencode,sila>] [-g] [--one-way]
              Bi-directionally reconcile and project skills across agent harnesses (alias: sila).
-  profile    <export|apply|sync|push> [source] [-f <file>] [-g] [--target <harnesses>]
-             Export, apply, sync, or push portable skills.json manifests (local, HTTP, or github:owner/repo).
+  profile    <link|sync|pull|push|export|apply> [source] [-g]
+             Manage personal skills registry and bi-directionally sync skills.json across machines and VMs.
   init       [--workspace | <skill-name>] [--dir <path>] [--category <cat>]
              Initialize a multi-harness workspace (--workspace / -w) or scaffold a new Agent Skill package.
   doctor     [--skills] [--security] [-g] [--json]

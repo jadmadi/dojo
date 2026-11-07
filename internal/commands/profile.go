@@ -28,9 +28,11 @@ import (
 	"time"
 
 	"github.com/jadmadi/dojo/internal/catalog"
+	"github.com/jadmadi/dojo/internal/config"
 	"github.com/jadmadi/dojo/internal/harness"
 	"github.com/jadmadi/dojo/internal/profile"
 	"github.com/jadmadi/dojo/internal/runner"
+	"github.com/jadmadi/dojo/internal/state"
 )
 
 // RunProfile manages the traveling skills.json manifest and Git-backed Local<->Cloud profile continuity.
@@ -41,9 +43,13 @@ func (a *App) RunProfile(args []string) int {
 	sub := args[0]
 	rest := args[1:]
 	switch sub {
+	case "link", "remote", "repo":
+		return a.runProfileLink(rest)
+	case "unlink":
+		return a.runProfileUnlink(rest)
 	case "export", "save":
 		return a.runProfileExport(rest)
-	case "apply", "restore", "install":
+	case "apply", "restore", "install", "pull":
 		return a.runProfileApply(rest)
 	case "sync":
 		return a.runProfileSync(rest)
@@ -53,7 +59,7 @@ func (a *App) RunProfile(args []string) int {
 		if strings.HasPrefix(sub, "-") {
 			return a.runProfileExport(args)
 		}
-		_, _ = fmt.Fprintf(a.Stderr, "error: unknown profile subcommand %q (valid: export, apply, sync, push)\n", sub)
+		_, _ = fmt.Fprintf(a.Stderr, "error: unknown profile subcommand %q (valid: link, unlink, export, apply, pull, sync, push)\n", sub)
 		return ExitUsage
 	}
 }
@@ -66,13 +72,180 @@ func resolveProfileScopeAndDir(globalFlag bool) (string, string) {
 	return scope, rootDir
 }
 
+func (a *App) resolveEffectiveGlobalFlag(explicitGlobal bool) bool {
+	if explicitGlobal {
+		return true
+	}
+	if a.Config != nil && a.Config.ProfileScope == state.ScopeGlobal {
+		return true
+	}
+	return false
+}
+
+func (a *App) runProfileLink(args []string) int {
+	fs := flag.NewFlagSet("profile link", flag.ContinueOnError)
+	fs.SetOutput(a.Stderr)
+	var globalFlag, jsonFlag, rawFlag bool
+
+	fs.BoolVar(&globalFlag, "global", false, "Default linked profile operations to global scope (~/.agents/skills/)")
+	fs.BoolVar(&globalFlag, "g", false, "Default linked profile operations to global scope (shorthand)")
+	fs.BoolVar(&jsonFlag, "json", false, "Output in JSON format")
+	fs.BoolVar(&rawFlag, "raw", false, "Output in raw tab-separated format")
+
+	posArgs, err := parseFlagsWithArgs(fs, args)
+	if err != nil {
+		return ExitUsage
+	}
+
+	mode := a.resolveMode(jsonFlag, rawFlag)
+
+	cfg := a.Config
+	if cfg == nil {
+		var lErr error
+		cfg, lErr = config.Load(a.Options.Config)
+		if lErr != nil {
+			cfg = config.DefaultConfig()
+		}
+	}
+
+	if len(posArgs) == 0 {
+		repo := cfg.GetProfileRepo()
+		scope := cfg.ProfileScope
+		if scope == "" {
+			scope = state.ScopeWorkspace
+		}
+		switch mode {
+		case OutputModeJSON:
+			enc := json.NewEncoder(a.Stdout)
+			enc.SetIndent("", "  ")
+			_ = enc.Encode(map[string]any{
+				"linked":       repo != "",
+				"profile_repo": repo,
+				"scope":        scope,
+			})
+		case OutputModeRaw:
+			_, _ = fmt.Fprintf(a.Stdout, "%s\t%s\n", sanitizeTSVField(repo), scope)
+		default:
+			if repo == "" {
+				_, _ = fmt.Fprintln(a.Stdout, "No personal skills registry linked.\nRun 'dojo profile link github:<owner>/<repo> -g' to link a repository.")
+			} else {
+				_, _ = fmt.Fprintf(a.Stdout, "Linked personal skills registry: %s (default scope: %s)\n", repo, scope)
+			}
+		}
+		return ExitSuccess
+	}
+
+	target := strings.TrimSpace(posArgs[0])
+	// Validate that target is either an existing local directory or a valid GitHub repo target
+	isDir := false
+	if info, statErr := os.Stat(target); statErr == nil && info.IsDir() {
+		if abs, aErr := filepath.Abs(target); aErr == nil {
+			target = abs
+		}
+		isDir = true
+	}
+	if !isDir {
+		cleanGH := strings.TrimPrefix(target, "github:")
+		if ghTarget, ok := catalog.ParseGitHubTarget(cleanGH); ok && ghTarget.Owner != "" && ghTarget.Repo != "" {
+			if !strings.HasPrefix(target, "github:") && !strings.HasPrefix(target, "http://") && !strings.HasPrefix(target, "https://") {
+				target = "github:" + ghTarget.RepoString()
+			}
+		} else {
+			_, _ = fmt.Fprintf(a.Stderr, "error: invalid registry target %q (expected github:<owner>/<repo> or an existing local directory)\n", target)
+			return ExitUsage
+		}
+	}
+
+	scope := state.ScopeWorkspace
+	if globalFlag {
+		scope = state.ScopeGlobal
+	}
+	cfg.SetProfileRepo(target, scope)
+	savedPath, err := config.Save(a.Options.Config, cfg)
+	if err != nil {
+		_, _ = fmt.Fprintf(a.Stderr, "error: saving config: %v\n", err)
+		return ExitGeneral
+	}
+	a.Config = cfg
+
+	switch mode {
+	case OutputModeJSON:
+		enc := json.NewEncoder(a.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(map[string]any{
+			"status":       "linked",
+			"profile_repo": target,
+			"scope":        scope,
+			"config_path":  savedPath,
+		})
+	case OutputModeRaw:
+		_, _ = fmt.Fprintf(a.Stdout, "linked\t%s\t%s\n", sanitizeTSVField(target), scope)
+	default:
+		_, _ = fmt.Fprintf(a.Stdout, "✓ Linked personal skills registry to %s (scope: %s)\n", target, scope)
+		_, _ = fmt.Fprintln(a.Stdout, "  • Run 'dojo profile sync' to bi-directionally synchronize local skills and GitHub")
+		_, _ = fmt.Fprintln(a.Stdout, "  • Run 'dojo profile pull' on remote VMs to install all skills from your registry")
+	}
+	return ExitSuccess
+}
+
+func (a *App) runProfileUnlink(args []string) int {
+	fs := flag.NewFlagSet("profile unlink", flag.ContinueOnError)
+	fs.SetOutput(a.Stderr)
+	var jsonFlag, rawFlag bool
+
+	fs.BoolVar(&jsonFlag, "json", false, "Output in JSON format")
+	fs.BoolVar(&rawFlag, "raw", false, "Output in raw tab-separated format")
+
+	if _, err := parseFlagsWithArgs(fs, args); err != nil {
+		return ExitUsage
+	}
+
+	cfg := a.Config
+	if cfg == nil {
+		var lErr error
+		cfg, lErr = config.Load(a.Options.Config)
+		if lErr != nil {
+			cfg = config.DefaultConfig()
+		}
+	}
+	prev := cfg.ProfileRepo
+	cfg.ProfileRepo = ""
+	cfg.ProfileScope = ""
+	_, err := config.Save(a.Options.Config, cfg)
+	if err != nil {
+		_, _ = fmt.Fprintf(a.Stderr, "error: saving config: %v\n", err)
+		return ExitGeneral
+	}
+	a.Config = cfg
+
+	mode := a.resolveMode(jsonFlag, rawFlag)
+	switch mode {
+	case OutputModeJSON:
+		enc := json.NewEncoder(a.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(map[string]any{
+			"status":   "unlinked",
+			"previous": prev,
+		})
+	case OutputModeRaw:
+		_, _ = fmt.Fprintf(a.Stdout, "unlinked\t%s\n", sanitizeTSVField(prev))
+	default:
+		if prev != "" {
+			_, _ = fmt.Fprintf(a.Stdout, "✓ Unlinked personal skills registry (%s)\n", prev)
+		} else {
+			_, _ = fmt.Fprintln(a.Stdout, "✓ No personal skills registry was linked")
+		}
+	}
+	return ExitSuccess
+}
+
 func (a *App) runProfileExport(args []string) int {
 	fs := flag.NewFlagSet("profile export", flag.ContinueOnError)
 	fs.SetOutput(a.Stderr)
 	var outFlag string
 	var globalFlag, stdoutFlag, jsonFlag, rawFlag bool
 
-	fs.StringVar(&outFlag, "out", "", "Output path for skills.json (default: ./skills.json or ~/.config/dojo/skills.json with -g)")
+	fs.StringVar(&outFlag, "out", "", "Output path for skills.json (default: ./skills.json or ~/skills.json with -g)")
 	fs.StringVar(&outFlag, "o", "", "Output path for skills.json (shorthand)")
 	fs.BoolVar(&globalFlag, "global", false, "Export global installed skills (~/.agents/skills/)")
 	fs.BoolVar(&globalFlag, "g", false, "Export global installed skills (shorthand)")
@@ -88,7 +261,8 @@ func (a *App) runProfileExport(args []string) int {
 		outFlag = posArgs[0]
 	}
 
-	scope, rootDir := resolveProfileScopeAndDir(globalFlag)
+	effectiveGlobal := a.resolveEffectiveGlobalFlag(globalFlag)
+	scope, rootDir := resolveProfileScopeAndDir(effectiveGlobal)
 	_ = harness.ReconcileHarnesses(rootDir)
 
 	st := a.loadState()
@@ -103,7 +277,7 @@ func (a *App) runProfileExport(args []string) int {
 	}
 
 	if outFlag == "" {
-		if globalFlag {
+		if effectiveGlobal {
 			outFlag = filepath.Join(rootDir, profile.DefaultManifestFilename)
 		} else {
 			wd, _ := os.Getwd()
@@ -151,9 +325,14 @@ func (a *App) runProfileApply(args []string) int {
 		return ExitUsage
 	}
 
+	effectiveGlobal := a.resolveEffectiveGlobalFlag(globalFlag)
 	source := profile.DefaultManifestFilename
 	if len(posArgs) > 0 {
 		source = posArgs[0]
+	} else if a.Config != nil && a.Config.GetProfileRepo() != "" {
+		if _, statErr := os.Stat(source); statErr != nil || effectiveGlobal {
+			source = a.Config.GetProfileRepo()
+		}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -165,7 +344,7 @@ func (a *App) runProfileApply(args []string) int {
 		return MapErrorToExitCode(err)
 	}
 
-	installedSkills, projected, applyErr := a.applySkillsManifest(manifest, globalFlag)
+	installedSkills, projected, applyErr := a.applySkillsManifest(manifest, effectiveGlobal)
 	if applyErr != nil {
 		_, _ = fmt.Fprintf(a.Stderr, "error: %v\n", applyErr)
 		return ExitGeneral
@@ -236,6 +415,20 @@ func (a *App) applySkillsManifest(manifest *profile.SkillsManifest, globalFlag b
 			continue
 		}
 
+		// Check if the manifest came from a local directory containing skills/<name>/SKILL.md
+		if manifest.SourceRepo != "" {
+			if info, sErr := os.Stat(manifest.SourceRepo); sErr == nil && info.IsDir() {
+				localRepoSkillDir := filepath.Join(manifest.SourceRepo, "skills", entry.Name)
+				if _, mdErr := os.Stat(filepath.Join(localRepoSkillDir, "SKILL.md")); mdErr == nil {
+					destSkillDir := filepath.Join(rootDir, ".agents", "skills", entry.Name)
+					if cErr := harness.CopySkillDir(localRepoSkillDir, destSkillDir); cErr == nil {
+						installed = append(installed, entry.Name)
+						continue
+					}
+				}
+			}
+		}
+
 		learnArgs := []string{spec, "--with-deps"}
 		if globalFlag {
 			learnArgs = append(learnArgs, "-g")
@@ -283,36 +476,63 @@ func (a *App) applySkillsManifest(manifest *profile.SkillsManifest, globalFlag b
 func (a *App) runProfileSync(args []string) int {
 	fs := flag.NewFlagSet("profile sync", flag.ContinueOnError)
 	fs.SetOutput(a.Stderr)
-	var dirFlag string
-	var globalFlag, pushFlag, jsonFlag, rawFlag bool
+	var dirFlag, repoFlag string
+	var globalFlag, pushFlag, pullOnlyFlag, jsonFlag, rawFlag bool
 
 	fs.StringVar(&dirFlag, "dir", "", "Target directory or Git repository path (default: current directory or ~ with -g)")
 	fs.StringVar(&dirFlag, "d", "", "Target directory or Git repository path (shorthand)")
+	fs.StringVar(&repoFlag, "repo", "", "Remote registry repository (github:owner/repo) or directory")
+	fs.StringVar(&repoFlag, "r", "", "Remote registry repository or directory (shorthand)")
 	fs.BoolVar(&globalFlag, "global", false, "Sync global profile (~/.agents/skills/ and ~/skills.json)")
 	fs.BoolVar(&globalFlag, "g", false, "Sync global profile (shorthand)")
-	fs.BoolVar(&pushFlag, "push", false, "Commit and push skills.json to the remote Git repository")
+	fs.BoolVar(&pushFlag, "push", false, "Commit and push skills to the remote Git repository")
+	fs.BoolVar(&pullOnlyFlag, "pull", false, "Pull from remote registry without pushing local changes back")
 	fs.BoolVar(&jsonFlag, "json", false, "Output in JSON format")
 	fs.BoolVar(&rawFlag, "raw", false, "Output in raw tab-separated format")
 
-	if _, err := parseFlagsWithArgs(fs, args); err != nil {
+	posArgs, err := parseFlagsWithArgs(fs, args)
+	if err != nil {
 		return ExitUsage
 	}
 
-	scope, rootDir := resolveProfileScopeAndDir(globalFlag)
+	effectiveGlobal := a.resolveEffectiveGlobalFlag(globalFlag)
+	scope, rootDir := resolveProfileScopeAndDir(effectiveGlobal)
 	if dirFlag != "" {
 		rootDir = dirFlag
 	}
 
-	// 1. Bi-directionally reconcile harnesses first
-	reconciled := harness.ReconcileHarnesses(rootDir)
-
-	// 2. If skills.json already exists in rootDir, apply any missing skills from it
-	manifestPath := filepath.Join(rootDir, profile.DefaultManifestFilename)
-	if existing, err := profile.LoadManifest(context.Background(), manifestPath, a.getHTTPClient()); err == nil && existing != nil {
-		_, _, _ = a.applySkillsManifest(existing, globalFlag)
+	remoteTarget := strings.TrimSpace(repoFlag)
+	if remoteTarget == "" && len(posArgs) > 0 {
+		remoteTarget = strings.TrimSpace(posArgs[0])
+	}
+	if remoteTarget == "" && a.Config != nil {
+		remoteTarget = a.Config.GetProfileRepo()
 	}
 
-	// 3. Export updated skills.json reflecting all currently installed & reconciled skills
+	// 1. Bi-directionally reconcile local harnesses first
+	reconciled := harness.ReconcileHarnesses(rootDir)
+
+	// 2. Pull / Apply from remote registry if linked or specified
+	var pulledSkills []string
+	if remoteTarget != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		remoteManifest, rErr := profile.LoadManifest(ctx, remoteTarget, a.getHTTPClient())
+		cancel()
+		if rErr == nil && remoteManifest != nil {
+			if info, sErr := os.Stat(remoteTarget); sErr == nil && info.IsDir() {
+				remoteManifest.SourceRepo = remoteTarget
+			}
+			pulledSkills, _, _ = a.applySkillsManifest(remoteManifest, effectiveGlobal)
+		}
+	}
+
+	// 3. Also check if skills.json already exists in rootDir and apply any missing skills from it
+	manifestPath := filepath.Join(rootDir, profile.DefaultManifestFilename)
+	if existing, err := profile.LoadManifest(context.Background(), manifestPath, a.getHTTPClient()); err == nil && existing != nil {
+		_, _, _ = a.applySkillsManifest(existing, effectiveGlobal)
+	}
+
+	// 4. Export updated skills.json reflecting all currently installed & reconciled skills
 	st := a.loadState()
 	targets := harness.DetectTargets(rootDir)
 	updatedManifest := profile.BuildManifest(st, scope, rootDir, targets)
@@ -321,7 +541,7 @@ func (a *App) runProfileSync(args []string) int {
 		return ExitGeneral
 	}
 
-	// 4. Project all canonical skills to all detected harnesses
+	// 5. Project all canonical skills to all detected harnesses
 	discovered := harness.DiscoverInstalledSkillDirs(rootDir)
 	var projections []harness.ProjectionResult
 	projections = append(projections, reconciled...)
@@ -329,9 +549,27 @@ func (a *App) runProfileSync(args []string) int {
 		projections = append(projections, harness.SyncSkill(name, dir, rootDir, targets)...)
 	}
 
-	// 5. Optional Git commit & push if --push is requested and rootDir is a git repo
+	// 6. Push local skills and updated manifest back to remote registry if configured and not --pull only
 	gitPushed := false
-	if pushFlag {
+	var pushedRemoteSkills []string
+	if remoteTarget != "" && !pullOnlyFlag && len(discovered) > 0 {
+		pushArgs := []string{remoteTarget, "--all"}
+		if effectiveGlobal {
+			pushArgs = append(pushArgs, "-g")
+		}
+		var pOut, pErr bytes.Buffer
+		subApp := *a
+		subApp.Stdout = &pOut
+		subApp.Stderr = &pErr
+		if code := subApp.runProfilePush(pushArgs); code == ExitSuccess {
+			gitPushed = true
+			for name := range discovered {
+				pushedRemoteSkills = append(pushedRemoteSkills, name)
+			}
+			sort.Strings(pushedRemoteSkills)
+		}
+	} else if pushFlag {
+		// Commit & push in rootDir if --push is requested on a local git repo without remoteTarget
 		if gitBin, err := exec.LookPath("git"); err == nil && gitBin != "" {
 			addCmd := exec.Command(gitBin, "-C", rootDir, "add", profile.DefaultManifestFilename)
 			_ = addCmd.Run()
@@ -350,11 +588,14 @@ func (a *App) runProfileSync(args []string) int {
 		enc := json.NewEncoder(a.Stdout)
 		enc.SetIndent("", "  ")
 		_ = enc.Encode(map[string]any{
-			"status":      "synced",
-			"manifest":    manifestPath,
-			"skills":      len(updatedManifest.Skills),
-			"projections": len(projections),
-			"git_pushed":  gitPushed,
+			"status":        "synced",
+			"manifest":      manifestPath,
+			"remote_target": remoteTarget,
+			"skills":        len(updatedManifest.Skills),
+			"pulled_skills": pulledSkills,
+			"pushed_skills": pushedRemoteSkills,
+			"projections":   len(projections),
+			"git_pushed":    gitPushed,
 		})
 	case OutputModeRaw:
 		_, _ = fmt.Fprintf(a.Stdout, "synced\t%s\t%d\t%d\n",
@@ -362,7 +603,14 @@ func (a *App) runProfileSync(args []string) int {
 	default:
 		_, _ = fmt.Fprintf(a.Stdout, "✓ Synced profile at %s (%d skill(s), %d harness projection(s))\n",
 			manifestPath, len(updatedManifest.Skills), len(projections))
-		if gitPushed {
+		if remoteTarget != "" {
+			if len(pulledSkills) > 0 {
+				_, _ = fmt.Fprintf(a.Stdout, "  ✓ Pulled %d skill(s) from %s\n", len(pulledSkills), remoteTarget)
+			}
+			if gitPushed {
+				_, _ = fmt.Fprintf(a.Stdout, "  ✓ Pushed %d skill(s) and updated skills.json in %s\n", len(pushedRemoteSkills), remoteTarget)
+			}
+		} else if gitPushed {
 			_, _ = fmt.Fprintln(a.Stdout, "  ✓ Committed and pushed skills.json to remote Git repository")
 		}
 	}
@@ -371,7 +619,7 @@ func (a *App) runProfileSync(args []string) int {
 
 // runProfilePush packages local skills, rules (.mdc/.md), or slash commands/workflows
 // and pushes them (along with an updated skills.json) to a target directory or GitHub profile repository
-// (e.g. `dojo profile push github:jadmadi/agy-vm my-skill my-command`).
+// (e.g. `dojo profile push github:jadmadi/agy-vm my-skill my-command` or `dojo profile push --all`).
 func (a *App) runProfilePush(args []string) int {
 	fs := flag.NewFlagSet("profile push", flag.ContinueOnError)
 	fs.SetOutput(a.Stderr)
@@ -392,24 +640,55 @@ func (a *App) runProfilePush(args []string) int {
 		return ExitUsage
 	}
 
+	effectiveGlobal := a.resolveEffectiveGlobalFlag(globalFlag)
 	targetSpec := strings.TrimSpace(repoFlag)
 	var rawSpecs []string
-	if targetSpec == "" {
-		if len(posArgs) == 0 {
-			_, _ = fmt.Fprintln(a.Stderr, "error: profile push requires a target repository/directory and at least one skill/command name (or --all)\nusage: dojo profile push <github:owner/repo | dir> <skill-or-command...>")
-			return ExitUsage
-		}
-		targetSpec = posArgs[0]
-		rawSpecs = posArgs[1:]
-	} else {
+
+	if targetSpec != "" {
 		rawSpecs = posArgs
+	} else if len(posArgs) > 0 {
+		first := strings.TrimSpace(posArgs[0])
+		isTarget := false
+		if strings.HasPrefix(first, "github:") || strings.HasPrefix(first, "http://") || strings.HasPrefix(first, "https://") {
+			isTarget = true
+		} else if info, statErr := os.Stat(first); statErr == nil && info.IsDir() {
+			if _, mdErr := os.Stat(filepath.Join(first, "SKILL.md")); mdErr != nil {
+				isTarget = true
+			}
+		} else if strings.Count(first, "/") == 1 && !strings.ContainsAny(first, ",#") {
+			if ghTarget, ok := catalog.ParseGitHubTarget(first); ok && ghTarget.Subpath == "" {
+				isTarget = true
+			}
+		}
+
+		if isTarget {
+			targetSpec = first
+			rawSpecs = posArgs[1:]
+		} else if a.Config != nil && a.Config.GetProfileRepo() != "" {
+			targetSpec = a.Config.GetProfileRepo()
+			rawSpecs = posArgs
+		} else {
+			targetSpec = first
+			rawSpecs = posArgs[1:]
+		}
+	} else if a.Config != nil && a.Config.GetProfileRepo() != "" {
+		targetSpec = a.Config.GetProfileRepo()
+		if !allFlag {
+			allFlag = true
+		}
 	}
+
+	if targetSpec == "" {
+		_, _ = fmt.Fprintln(a.Stderr, "error: profile push requires a target repository/directory (or a linked registry via 'dojo profile link') and at least one skill/command name (or --all)\nusage: dojo profile push [github:owner/repo | dir] <skill-or-command...>")
+		return ExitUsage
+	}
+
 	skillSpecs := a.resolveSkillSpecs(rawSpecs)
 
 	wd, _ := os.Getwd()
 	homeDir, _ := os.UserHomeDir()
 	var searchRoots []string
-	if globalFlag {
+	if effectiveGlobal {
 		searchRoots = []string{homeDir, wd}
 	} else {
 		searchRoots = []string{wd, homeDir}
@@ -423,7 +702,7 @@ func (a *App) runProfilePush(args []string) int {
 
 	if allFlag && len(skillSpecs) == 0 {
 		primaryRoot := wd
-		if globalFlag && homeDir != "" {
+		if effectiveGlobal && homeDir != "" {
 			primaryRoot = homeDir
 		}
 		for name := range harness.DiscoverInstalledSkillDirs(primaryRoot) {
