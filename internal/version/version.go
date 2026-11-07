@@ -21,7 +21,7 @@ import (
 )
 
 // DefaultVersion is the fallback version string used in local development builds.
-var DefaultVersion = "1.1.7"
+var DefaultVersion = "1.1.8"
 
 // Get returns the dynamic version string resolved from runtime/debug build info
 // (e.g., when built via `go install module@version`), falling back to DefaultVersion.

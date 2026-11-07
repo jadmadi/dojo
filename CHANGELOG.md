@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.8] - 2026-11-07
+
+### Added
+- Compound numeric spec resolution: `dojo load <number>#<section>` and `dojo load <number>/<subpath>` now resolve numeric list indices into canonical skill names while preserving section anchors and subpaths.
+- Universal numeric index resolution across secondary commands: `dojo toc`, `dojo run`, `dojo forget`, `dojo update`, `dojo status`, and `dojo sync` now support 1-based list numbers and comma-separated specs (matching `show`, `load`, and `learn`).
+- Scope filtering in `dojo list`: added `-g` / `--global` and `-w` / `--workspace` flags to list only skills installed in global or workspace scope.
+- Skill name kebab-case validation in `dojo init`: rejects invalid names containing spaces or illegal characters with an informative error.
+
 ## [1.1.7] - 2026-11-07
 
 ### Added
@@ -71,7 +79,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 7-Pillar agent skills discovery, search, and JIT loading.
 - Native support for Antigravity (Desktop & CLI) across sync detection, projection, and CLI.
 
-[Unreleased]: https://github.com/jadmadi/dojo/compare/v1.1.7...HEAD
+[Unreleased]: https://github.com/jadmadi/dojo/compare/v1.1.8...HEAD
+[1.1.8]: https://github.com/jadmadi/dojo/compare/v1.1.7...v1.1.8
 [1.1.7]: https://github.com/jadmadi/dojo/compare/v1.1.6...v1.1.7
 [1.1.6]: https://github.com/jadmadi/dojo/compare/v1.1.5...v1.1.6
 [1.1.5]: https://github.com/jadmadi/dojo/compare/v1.1.4...v1.1.5

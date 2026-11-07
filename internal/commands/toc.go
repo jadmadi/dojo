@@ -41,6 +41,8 @@ func (a *App) RunTOC(args []string) int {
 	if err != nil {
 		return ExitUsage
 	}
+
+	posArgs = a.resolveSkillSpecs(posArgs)
 	if len(posArgs) == 0 {
 		_, _ = fmt.Fprintln(a.Stderr, "error: toc requires a skill name or subpath (e.g. 'dojo toc godoctor')")
 		return ExitUsage

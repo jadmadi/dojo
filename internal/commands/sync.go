@@ -47,6 +47,7 @@ func (a *App) RunSync(args []string) int {
 	if err != nil {
 		return ExitUsage
 	}
+	posArgs = a.resolveSkillSpecs(posArgs)
 
 	mode := a.resolveMode(jsonFlag, rawFlag)
 

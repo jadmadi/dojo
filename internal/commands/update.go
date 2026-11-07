@@ -51,6 +51,7 @@ func (a *App) RunUpdate(args []string) int {
 	if err != nil {
 		return ExitUsage
 	}
+	posArgs = a.resolveSkillSpecs(posArgs)
 
 	scope, wsDir := resolveScopeAndDir(globalFlag)
 

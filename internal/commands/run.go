@@ -40,6 +40,9 @@ func (a *App) RunRun(args []string) int {
 		return ExitUsage
 	}
 	skillName := args[0]
+	if resolved := a.resolveSkillSpecs([]string{skillName}); len(resolved) > 0 {
+		skillName = resolved[0]
+	}
 	scriptName := args[1]
 	scriptArgs := args[2:]
 

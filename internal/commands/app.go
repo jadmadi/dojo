@@ -335,7 +335,11 @@ func (a *App) resolveSkillSpecs(specs []string) []string {
 
 	hasNumeric := false
 	for _, tok := range tokens {
-		if _, err := strconv.Atoi(tok); err == nil {
+		prefix := tok
+		if idx := strings.IndexAny(tok, "#/"); idx != -1 {
+			prefix = tok[:idx]
+		}
+		if _, err := strconv.Atoi(prefix); err == nil {
 			hasNumeric = true
 			break
 		}
@@ -353,10 +357,17 @@ func (a *App) resolveSkillSpecs(specs []string) []string {
 	var resolved []string
 
 	for _, tok := range tokens {
-		if idx, err := strconv.Atoi(tok); err == nil && idx > 0 {
+		numStr := tok
+		suffix := ""
+		if idx := strings.IndexAny(tok, "#/"); idx != -1 {
+			numStr = tok[:idx]
+			suffix = tok[idx:]
+		}
+
+		if idx, err := strconv.Atoi(numStr); err == nil && idx > 0 {
 			if len(orderedCatalog) > 0 {
 				if idx <= len(orderedCatalog) {
-					name := orderedCatalog[idx-1].Name
+					name := orderedCatalog[idx-1].Name + suffix
 					if !seen[name] {
 						seen[name] = true
 						resolved = append(resolved, name)
@@ -826,6 +837,8 @@ ARGUMENTS:
                             Example: dojo list coding
 
 FLAGS:
+  -g, --global              List only skills installed in global scope (~/.agents/skills/)
+  -w, --workspace           List only skills installed in workspace scope (.agents/skills/)
   --json                    Output in JSON format
                             Example: dojo list --json
   --raw                     Output in raw tab-separated format

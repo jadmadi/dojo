@@ -60,7 +60,7 @@ func (a *App) RunForget(args []string) int {
 		}
 		sort.Strings(targets)
 	} else if len(posArgs) > 0 {
-		targets = posArgs
+		targets = a.resolveSkillSpecs(posArgs)
 	} else {
 		_, _ = fmt.Fprintln(a.Stderr, "error: forget requires skill name(s) or --all")
 		return ExitUsage

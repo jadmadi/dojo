@@ -22,15 +22,20 @@ import (
 	"strings"
 
 	"github.com/jadmadi/dojo/internal/catalog"
+	"github.com/jadmadi/dojo/internal/state"
 )
 
 func (a *App) RunList(args []string) int {
 	fs := flag.NewFlagSet("list", flag.ContinueOnError)
 	fs.SetOutput(a.Stderr)
-	var jsonFlag, rawFlag bool
+	var jsonFlag, rawFlag, globalFlag, workspaceFlag bool
 
 	fs.BoolVar(&jsonFlag, "json", false, "Output in JSON format")
 	fs.BoolVar(&rawFlag, "raw", false, "Output in raw format")
+	fs.BoolVar(&globalFlag, "global", false, "Filter skills installed in global scope (~/.agents/skills/)")
+	fs.BoolVar(&globalFlag, "g", false, "Filter skills installed in global scope (shorthand)")
+	fs.BoolVar(&workspaceFlag, "workspace", false, "Filter skills installed in workspace scope (.agents/skills/)")
+	fs.BoolVar(&workspaceFlag, "w", false, "Filter skills installed in workspace scope (shorthand)")
 
 	posArgs, err := parseFlagsWithArgs(fs, args)
 	if err != nil {
@@ -91,15 +96,46 @@ func (a *App) RunList(args []string) int {
 	var listings []SkillListing
 	st := a.loadState()
 	for _, it := range items {
+		status := a.getSkillStatusWithState(&it, st)
+		if globalFlag && status != state.ScopeGlobal {
+			continue
+		}
+		if workspaceFlag && status != state.ScopeWorkspace {
+			continue
+		}
 		listings = append(listings, SkillListing{
 			Name:         it.Name,
 			Category:     it.Category,
 			Description:  it.Description,
 			Tags:         it.Tags,
 			Version:      it.Version,
-			Status:       a.getSkillStatusWithState(&it, st),
+			Status:       status,
 			AllowedTools: it.AllowedTools,
 		})
+	}
+
+	if len(listings) == 0 {
+		if mode == OutputModeJSON {
+			_, _ = fmt.Fprintln(a.Stdout, "[]")
+			return ExitSuccess
+		}
+		if mode == OutputModeRaw {
+			return ExitSuccess
+		}
+		if globalFlag {
+			_, _ = fmt.Fprintln(a.Stderr, "No skills found installed in global scope (~/.agents/skills/).")
+			return ExitSuccess
+		}
+		if workspaceFlag {
+			_, _ = fmt.Fprintln(a.Stderr, "No skills found installed in workspace scope (.agents/skills/).")
+			return ExitSuccess
+		}
+		if filterQuery != "" {
+			_, _ = fmt.Fprintf(a.Stderr, "error: no skills found matching %q\n", filterQuery)
+		} else {
+			_, _ = fmt.Fprintln(a.Stderr, "error: no skills found in catalog")
+		}
+		return ExitNotFound
 	}
 
 	switch mode {
@@ -117,6 +153,10 @@ func (a *App) RunList(args []string) int {
 	default: // OutputModeHuman
 		if filterQuery != "" {
 			_, _ = fmt.Fprintf(a.Stdout, "AVAILABLE SKILLS (matching %q, %d total):\n\n", filterQuery, len(listings))
+		} else if globalFlag {
+			_, _ = fmt.Fprintf(a.Stdout, "INSTALLED GLOBAL SKILLS (%d total):\n\n", len(listings))
+		} else if workspaceFlag {
+			_, _ = fmt.Fprintf(a.Stdout, "INSTALLED WORKSPACE SKILLS (%d total):\n\n", len(listings))
 		} else {
 			_, _ = fmt.Fprintf(a.Stdout, "AVAILABLE SKILLS (%d total):\n\n", len(listings))
 		}

@@ -38,6 +38,7 @@ func (a *App) RunStatus(args []string) int {
 	if err != nil {
 		return ExitUsage
 	}
+	posArgs = a.resolveSkillSpecs(posArgs)
 
 	st := a.loadState()
 	wsDir, _ := os.Getwd()

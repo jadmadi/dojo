@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/jadmadi/dojo/internal/harness"
@@ -64,6 +65,12 @@ func (a *App) RunInit(args []string) int {
 	cleanName := filepath.Base(filepath.Clean(rawName))
 	if cleanName == "" || cleanName == "." || cleanName == ".." || strings.ContainsAny(cleanName, `/\`) {
 		_, _ = fmt.Fprintf(a.Stderr, "error: invalid skill name %q\n", rawName)
+		return ExitUsage
+	}
+
+	validSkillNameRegex := regexp.MustCompile(`^[a-z0-9]+([-_][a-z0-9]+)*$`)
+	if !validSkillNameRegex.MatchString(cleanName) {
+		_, _ = fmt.Fprintf(a.Stderr, "error: invalid skill name %q: skill names must consist of lowercase alphanumeric characters and hyphens (e.g. 'my-custom-skill')\n", rawName)
 		return ExitUsage
 	}
 

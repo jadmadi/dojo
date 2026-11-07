@@ -66,6 +66,16 @@ func TestResolveSkillSpecs(t *testing.T) {
 			input:    []string{"1", "abstract", "1"},
 			expected: []string{"abstract"},
 		},
+		{
+			name:     "compound numeric section",
+			input:    []string{"1#architecture", "3#quick-start"},
+			expected: []string{"abstract#architecture", "cli-reviewer#quick-start"},
+		},
+		{
+			name:     "compound numeric subpath",
+			input:    []string{"2/references/guide.md"},
+			expected: []string{"buffer/references/guide.md"},
+		},
 	}
 
 	for _, tt := range tests {

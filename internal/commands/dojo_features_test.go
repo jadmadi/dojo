@@ -330,3 +330,81 @@ func TestProfilePush_CatalogFallback(t *testing.T) {
 	}
 }
 
+func TestDojo_V118_CliReviewer_Fixes(t *testing.T) {
+	server := setupEmptyRemoteCatalogServer(t)
+	defer server.Close()
+
+	workDir := t.TempDir()
+	origWD, _ := os.Getwd()
+	_ = os.Chdir(workDir)
+	defer func() { _ = os.Chdir(origWD) }()
+
+	var stdout, stderr bytes.Buffer
+
+	// 1. Verify `dojo toc 1` resolves numeric index to catalog skill (kungfu)
+	code := Run([]string{"toc", "1"}, &stdout, &stderr)
+	if code != ExitSuccess {
+		t.Fatalf("Run(toc 1) = %d; stderr: %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "TABLE OF CONTENTS: kungfu") {
+		t.Errorf("expected toc 1 to resolve to kungfu, got:\n%s", stdout.String())
+	}
+
+	// 2. Verify `dojo load 1#kungfu-gateway` extracts the specific section using numeric prefix
+	stdout.Reset()
+	stderr.Reset()
+	code = Run([]string{"load", "1#kungfu-gateway"}, &stdout, &stderr)
+	if code != ExitSuccess {
+		t.Fatalf("Run(load 1#kungfu-gateway) = %d; stderr: %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "# KungFu gateway") {
+		t.Errorf("expected section content from load 1#kungfu-gateway, got:\n%s", stdout.String())
+	}
+
+	// 3. Verify `dojo list -g` and `dojo list -w` scope filtering
+	stdout.Reset()
+	stderr.Reset()
+	code = Run([]string{"list", "-g"}, &stdout, &stderr)
+	if code != ExitSuccess {
+		t.Fatalf("Run(list -g) = %d; stderr: %s", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Run([]string{"list", "-w"}, &stdout, &stderr)
+	if code != ExitSuccess {
+		t.Fatalf("Run(list -w) = %d; stderr: %s", code, stderr.String())
+	}
+
+	// 4. Verify `dojo status 1` resolves numeric index
+	stdout.Reset()
+	stderr.Reset()
+	code = Run([]string{"status", "1"}, &stdout, &stderr)
+	if code != ExitSuccess {
+		t.Fatalf("Run(status 1) = %d; stderr: %s", code, stderr.String())
+	}
+
+	// 5. Verify `dojo init` rejects invalid skill names containing spaces or symbols
+	stdout.Reset()
+	stderr.Reset()
+	code = Run([]string{"init", "Invalid Name With Spaces!"}, &stdout, &stderr)
+	if code != ExitUsage {
+		t.Fatalf("expected Run(init invalid name) = %d (ExitUsage), got %d; stdout: %s; stderr: %s", ExitUsage, code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "skill names must consist of lowercase alphanumeric characters and hyphens") {
+		t.Errorf("expected informative error message on invalid skill name, got:\n%s", stderr.String())
+	}
+
+	// 6. Verify `dojo init` accepts compliant kebab-case skill name
+	stdout.Reset()
+	stderr.Reset()
+	code = Run([]string{"init", "valid-kebab-skill"}, &stdout, &stderr)
+	if code != ExitSuccess {
+		t.Fatalf("Run(init valid-kebab-skill) = %d; stderr: %s", code, stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(workDir, ".agents", "skills", "valid-kebab-skill", "SKILL.md")); err != nil {
+		t.Errorf("expected valid-kebab-skill to be scaffolded: %v", err)
+	}
+}
+
+
