@@ -29,12 +29,12 @@ type Target string
 
 const (
 	TargetAgents   Target = "agents"   // .agents/skills/<name>/SKILL.md (Universal standard)
-	TargetClaude   Target = "claude"   // .claude/skills/<name>/SKILL.md
-	TargetCursor   Target = "cursor"   // .cursor/rules/<name>.mdc
-	TargetWindsurf Target = "windsurf" // .windsurf/rules/<name>.md
-	TargetGemini   Target = "gemini"   // .gemini/skills/<name>/SKILL.md (Antigravity / Gemini CLI)
-	TargetOpenCode Target = "opencode" // .opencode/skills/<name>/SKILL.md
-	TargetSila     Target = "sila"     // .sila/skills/<name>/SKILL.md
+	TargetClaude   Target = "claude"   // .claude/skills/<name>/SKILL.md (Claude Code)
+	TargetCursor   Target = "cursor"   // .cursor/rules/<name>.mdc (Cursor)
+	TargetWindsurf Target = "windsurf" // .windsurf/rules/<name>.md (Windsurf)
+	TargetGemini   Target = "gemini"   // .gemini/skills/<name>/SKILL.md or .antigravity/skills (Antigravity Desktop & CLI)
+	TargetOpenCode Target = "opencode" // .opencode/skills/<name>/SKILL.md (OpenCode)
+	TargetSila     Target = "sila"     // .sila/skills/<name>/SKILL.md (Sila)
 )
 
 // AllTargets lists all supported agent harnesses in deterministic order.
@@ -122,6 +122,8 @@ func DetectTargets(rootDir string) []Target {
 		{".windsurfrules", TargetWindsurf},
 		{".gemini", TargetGemini},
 		{"GEMINI.md", TargetGemini},
+		{".antigravity", TargetGemini},
+		{"ANTIGRAVITY.md", TargetGemini},
 		{".opencode", TargetOpenCode},
 		{".sila", TargetSila},
 	}
@@ -210,6 +212,9 @@ func SyncSkill(skillName, sourceDir, rootDir string, targets []Target) []Project
 
 		case TargetGemini:
 			destDir := filepath.Join(rootDir, ".gemini", "skills", skillName)
+			if _, aErr := os.Stat(filepath.Join(rootDir, ".antigravity")); aErr == nil {
+				destDir = filepath.Join(rootDir, ".antigravity", "skills", skillName)
+			}
 			results = append(results, projectSkillDirectory(skillName, string(target), sourceDir, destDir))
 
 		case TargetOpenCode:

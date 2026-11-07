@@ -48,10 +48,10 @@ dojo load fullstack-go --with-deps
 
 Write or learn a skill once in `.agents/skills/` and project it across every agent harness in your workspace or global home directory:
 
+- **Antigravity (Desktop & CLI)**: `.gemini/skills/<name>` or `.antigravity/skills/<name>`
 - **Claude Code**: `.claude/skills/<name>`
 - **Cursor**: `.cursor/rules/<name>.mdc` (auto-converted to `.mdc` rule format)
 - **Windsurf**: `.windsurf/rules/<name>.md`
-- **Gemini / Antigravity**: `.gemini/skills/<name>`
 - **OpenCode**: `.opencode/skills/<name>`
 - **Sila**: `.sila/skills/<name>`
 
@@ -61,7 +61,7 @@ dojo learn godoctor --with-deps --target all
 
 # Sync all installed workspace skills across harnesses
 dojo sync --target all
-dojo sila --target claude,cursor,gemini,sila
+dojo sila --target antigravity,cursor,claude
 ```
 
 ## 4. Native MCP Server (`dojo mcp`)

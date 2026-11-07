@@ -71,22 +71,22 @@ dojo load fullstack-go --with-deps
 
 `dojo` stores canonical skills in `.agents/skills/<name>` and projects them into every active agent harness in your workspace or home directory:
 
-| Target (`--target`) | Workspace projection path | Projection method |
+| Target (`--target`) | Workspace projection path | Agent Harness & Projection method |
 | :--- | :--- | :--- |
-| `agents` | `.agents/skills/<name>/SKILL.md` | Canonical directory |
-| `claude` | `.claude/skills/<name>/SKILL.md` | Relative symlink (copy fallback) |
-| `cursor` | `.cursor/rules/<name>.mdc` | Transpiled Cursor `.mdc` frontmatter |
-| `windsurf` | `.windsurf/rules/<name>.md` | Markdown rule copy |
-| `gemini` | `.gemini/skills/<name>/SKILL.md` | Relative symlink (copy fallback) |
-| `opencode` | `.opencode/skills/<name>/SKILL.md` | Relative symlink (copy fallback) |
-| `sila` | `.sila/skills/<name>/SKILL.md` | Relative symlink (copy fallback) |
+| `agents` | `.agents/skills/<name>/SKILL.md` | Universal Agent Skills canonical directory |
+| `antigravity` / `gemini` | `.gemini/skills/<name>` or `.antigravity/skills/<name>` | **Antigravity Desktop & CLI** (Relative symlink / copy) |
+| `claude` | `.claude/skills/<name>/SKILL.md` | Claude Code (Relative symlink) |
+| `cursor` | `.cursor/rules/<name>.mdc` | Cursor (Transpiled `.mdc` frontmatter) |
+| `windsurf` | `.windsurf/rules/<name>.md` | Windsurf (Markdown rule copy) |
+| `opencode` | `.opencode/skills/<name>/SKILL.md` | OpenCode (Relative symlink) |
+| `sila` | `.sila/skills/<name>/SKILL.md` | Sila continuity engine (Relative symlink) |
 
 ```bash
 # Install a skill and project it to all harnesses at once
 dojo learn godoctor --with-deps --target all
 
-# Project all existing skills in .agents/skills/ to specific harnesses
-dojo sila --target claude,cursor,gemini,sila
+# Project all existing workspace skills to Antigravity, Cursor, and Claude
+dojo sila --target antigravity,cursor,claude
 ```
 
 ### Serve skills over Model Context Protocol (`mcp`)

@@ -751,7 +751,7 @@ FLAGS:
   dojo sila [skill...] [flags]
 
 Project and synchronize installed skills across AI coding agent harnesses
-(.claude/skills, .cursor/rules/*.mdc, .windsurf/rules/*.md, .gemini/skills, .opencode/skills, .sila/skills).
+(.claude/skills, .cursor/rules/*.mdc, .windsurf/rules/*.md, .gemini/skills or .antigravity/skills [Antigravity Desktop & CLI], .opencode/skills, .sila/skills).
 
 FLAGS:
   -t, --target <targets>  Comma-separated harness targets (default: auto-detected or all)
