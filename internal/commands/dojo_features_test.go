@@ -34,8 +34,12 @@ func setupEmptyRemoteCatalogServer(t *testing.T) *httptest.Server {
 			_, _ = w.Write([]byte(skillBody))
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"$schema":"https://schemas.agentskills.io/discovery/0.2.0/schema.json","skills":[{"name":"kungfu","type":"skill-md","description":"Agent skills gateway","category":"agents","url":"` + srv.URL + `/kungfu/SKILL.md"}]}`))
+		if r.URL.Path == "/" || r.URL.Path == "/index.json" || r.URL.Path == "/.well-known/agent-skills/index.json" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"$schema":"https://schemas.agentskills.io/discovery/0.2.0/schema.json","skills":[{"name":"kungfu","type":"skill-md","description":"Agent skills gateway","category":"agents","url":"` + srv.URL + `/kungfu/SKILL.md"}]}`))
+			return
+		}
+		http.NotFound(w, r)
 	}))
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("DOJO_URL", srv.URL)
@@ -296,6 +300,33 @@ func TestDojo_WorkspaceInit_Profile_And_Completion(t *testing.T) {
 	}
 	if !strings.Contains(string(pushedCmdBytes), "name: deploy-prod") || !strings.Contains(string(pushedCmdBytes), "# Deploy Prod") {
 		t.Errorf("unexpected packaged SKILL.md for slash command:\n%s", string(pushedCmdBytes))
+	}
+}
+
+func TestProfilePush_CatalogFallback(t *testing.T) {
+	server := setupEmptyRemoteCatalogServer(t)
+	defer server.Close()
+
+	targetProfileDir := t.TempDir()
+	emptyDir := t.TempDir()
+	origWd, _ := os.Getwd()
+	_ = os.Chdir(emptyDir)
+	defer func() { _ = os.Chdir(origWd) }()
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"profile", "push", targetProfileDir, "kungfu"}, &stdout, &stderr)
+	if code != ExitSuccess {
+		t.Fatalf("Run(profile push with catalog skill) = %d; stderr: %s", code, stderr.String())
+	}
+
+	pushedSkill := filepath.Join(targetProfileDir, "skills", "kungfu", "SKILL.md")
+	if _, err := os.Stat(pushedSkill); err != nil {
+		t.Fatalf("expected catalog skill 'kungfu' to be pushed to target profile: %v", err)
+	}
+
+	manifestPath := filepath.Join(targetProfileDir, "skills.json")
+	if _, err := os.Stat(manifestPath); err != nil {
+		t.Fatalf("expected skills.json in target profile: %v", err)
 	}
 }
 

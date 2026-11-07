@@ -30,6 +30,7 @@ import (
 	"github.com/jadmadi/dojo/internal/catalog"
 	"github.com/jadmadi/dojo/internal/harness"
 	"github.com/jadmadi/dojo/internal/profile"
+	"github.com/jadmadi/dojo/internal/runner"
 )
 
 // RunProfile manages the traveling skills.json manifest and Git-backed Local<->Cloud profile continuity.
@@ -453,6 +454,34 @@ func (a *App) runProfilePush(args []string) int {
 	for _, spec := range skillSpecs {
 		name, dir, cleanup, lErr := harness.LocateOrPackageLocalSkill(spec, searchRoots)
 		if lErr != nil {
+			// Fall back to catalog store if not found in local workspace/home harnesses
+			if a.Store != nil {
+				if item, err := a.Store.Get(spec); err == nil && item != nil {
+					tmpDir, mErr := os.MkdirTemp("", "dojo-cat-pkg-*")
+					if mErr == nil {
+						pkgDir := filepath.Join(tmpDir, item.Name)
+						content, cErr := a.loadItemContent(item)
+						if cErr == nil {
+							var extraCandidates []string
+							for _, refFile := range a.listReferenceFiles(*item) {
+								extraCandidates = append(extraCandidates, "references/"+refFile)
+							}
+							for _, scr := range a.listScripts(*item) {
+								extraCandidates = append(extraCandidates, "scripts/"+scr)
+							}
+							ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+							_, instErr := runner.InstallSkillContext(ctx, *item, pkgDir, content, extraCandidates, a.getHTTPClient())
+							cancel()
+							if instErr == nil {
+								cl := func() { _ = os.RemoveAll(tmpDir) }
+								items = append(items, locatedItem{name: item.Name, dir: pkgDir, cleanup: cl})
+								continue
+							}
+						}
+						_ = os.RemoveAll(tmpDir)
+					}
+				}
+			}
 			_, _ = fmt.Fprintf(a.Stderr, "error: %v\n", lErr)
 			return ExitNotFound
 		}

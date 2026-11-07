@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.7] - 2026-11-07
+
+### Added
+- Catalog fallback for `dojo profile push`: pushing skills by name or list number to a remote repository or directory now automatically fetches and packages skills from the Dojo catalog if they are not yet installed in local workspace or home harness directories.
+
 ## [1.1.6] - 2026-11-07
 
 ### Added
@@ -66,7 +71,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 7-Pillar agent skills discovery, search, and JIT loading.
 - Native support for Antigravity (Desktop & CLI) across sync detection, projection, and CLI.
 
-[Unreleased]: https://github.com/jadmadi/dojo/compare/v1.1.6...HEAD
+[Unreleased]: https://github.com/jadmadi/dojo/compare/v1.1.7...HEAD
+[1.1.7]: https://github.com/jadmadi/dojo/compare/v1.1.6...v1.1.7
 [1.1.6]: https://github.com/jadmadi/dojo/compare/v1.1.5...v1.1.6
 [1.1.5]: https://github.com/jadmadi/dojo/compare/v1.1.4...v1.1.5
 [1.1.4]: https://github.com/jadmadi/dojo/compare/v1.1.3...v1.1.4
