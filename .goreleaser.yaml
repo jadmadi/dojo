@@ -33,6 +33,7 @@ archives:
     files:
       - LICENSE
       - NOTICE
+      - CREDITS.md
       - README.md
 
 checksum:
