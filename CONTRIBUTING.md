@@ -6,13 +6,14 @@ Thank you for your interest in contributing to **Dojo**!
 
 1. **Fork the Repository**: Create your personal fork on GitHub.
 2. **Create a Feature Branch**: `git checkout -b feature/my-cool-feature`.
-3. **Write Tests**: Ensure all new features have test coverage.
-4. **Run the Quality Gate**:
+3. **Write Tests**: Ensure all new features have unit and integration test coverage.
+4. **Update README.md**: Every new or updated feature, CLI flag, or workflow **must** update `README.md` following the Minto / Inverted-Pyramid structure (answer-first lead, concrete examples, and flag reference tables).
+5. **Run the Quality Gate**:
    ```bash
    go test -race ./...
    go run . doctor --skills --security
    ```
-5. **Open a Pull Request**: Submit your PR with a clear description of the problem solved.
+6. **Open a Pull Request**: Submit your PR with a clear description of the problem solved.
 
 ## Code of Conduct
 
