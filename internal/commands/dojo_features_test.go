@@ -275,5 +275,27 @@ func TestDojo_WorkspaceInit_Profile_And_Completion(t *testing.T) {
 	if !strings.Contains(stdout.String(), "kungfu#kungfu-gateway") {
 		t.Errorf("expected dynamic section completion kungfu#kungfu-gateway, got:\n%s", stdout.String())
 	}
+
+	// 6. Test `dojo profile push <targetDir> <skill> <slash-command>`
+	_ = os.MkdirAll(filepath.Join(applyDir, ".claude", "commands"), 0755)
+	_ = os.WriteFile(filepath.Join(applyDir, ".claude", "commands", "deploy-prod.md"), []byte("# Deploy Prod\n\nRun preflight checks before deploying.\n"), 0644)
+	targetProfileDir := t.TempDir()
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Run([]string{"profile", "push", targetProfileDir, "kungfu", "deploy-prod"}, &stdout, &stderr)
+	if code != ExitSuccess {
+		t.Fatalf("Run(profile push) = %d; stderr: %s", code, stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(targetProfileDir, "skills", "kungfu", "SKILL.md")); err != nil {
+		t.Errorf("expected pushed skills/kungfu/SKILL.md in target profile dir: %v", err)
+	}
+	pushedCmdBytes, err := os.ReadFile(filepath.Join(targetProfileDir, "skills", "deploy-prod", "SKILL.md"))
+	if err != nil {
+		t.Fatalf("expected pushed skills/deploy-prod/SKILL.md from .claude/commands/deploy-prod.md: %v", err)
+	}
+	if !strings.Contains(string(pushedCmdBytes), "name: deploy-prod") || !strings.Contains(string(pushedCmdBytes), "# Deploy Prod") {
+		t.Errorf("unexpected packaged SKILL.md for slash command:\n%s", string(pushedCmdBytes))
+	}
 }
 

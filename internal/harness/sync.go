@@ -659,3 +659,118 @@ func ReconcileHarnesses(rootDir string) []ProjectionResult {
 	return reconciled
 }
 
+// CopySkillDir copies a skill directory (SKILL.md, scripts/, references/, assets/) to dstDir.
+func CopySkillDir(srcDir, dstDir string) error {
+	_ = os.RemoveAll(dstDir)
+	return copyDirRecursive(srcDir, dstDir)
+}
+
+// LocateOrPackageLocalSkill searches searchRoots (e.g. current workspace and user home directory)
+// for a skill directory, Cursor/Windsurf rule (.mdc/.md), or agentic slash-command/workflow (.claude/commands/*.md,
+// .gemini/commands/*.md, .agents/workflows/*.md, etc.). If the source is a single-file rule or command,
+// it packages it into a temporary directory containing a valid SKILL.md with frontmatter.
+func LocateOrPackageLocalSkill(nameOrPath string, searchRoots []string) (string, string, func(), error) {
+	nop := func() {}
+	clean := strings.TrimSpace(nameOrPath)
+	if clean == "" {
+		return "", "", nop, fmt.Errorf("empty skill or command name")
+	}
+
+	packageSingleFile := func(skillName, filePath string) (string, string, func(), error) {
+		rawBytes, err := os.ReadFile(filePath)
+		if err != nil {
+			return "", "", nop, err
+		}
+		fm, _, fErr := catalog.ParseFrontmatter(rawBytes)
+		contentToWrite := rawBytes
+		if fErr != nil || fm == nil || strings.TrimSpace(fm.Name) == "" || strings.HasSuffix(strings.ToLower(filePath), ".mdc") {
+			contentToWrite = ConvertFromCursorMDC(skillName, rawBytes, nil)
+		}
+		tmpDir, err := os.MkdirTemp("", "dojo-skill-pkg-*")
+		if err != nil {
+			return "", "", nop, err
+		}
+		cleanup := func() { _ = os.RemoveAll(tmpDir) }
+		skillDir := filepath.Join(tmpDir, skillName)
+		if err := os.MkdirAll(skillDir, 0755); err != nil {
+			cleanup()
+			return "", "", nop, err
+		}
+		if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), contentToWrite, 0644); err != nil {
+			cleanup()
+			return "", "", nop, err
+		}
+		return skillName, skillDir, cleanup, nil
+	}
+
+	// 1. Direct path on disk
+	if info, err := os.Stat(clean); err == nil {
+		if info.IsDir() {
+			if _, sErr := os.Stat(filepath.Join(clean, "SKILL.md")); sErr == nil {
+				return filepath.Base(filepath.Clean(clean)), clean, nop, nil
+			}
+		} else {
+			base := filepath.Base(clean)
+			if strings.EqualFold(base, "skill.md") {
+				parent := filepath.Dir(clean)
+				return filepath.Base(parent), parent, nop, nil
+			}
+			ext := filepath.Ext(base)
+			skillName := strings.TrimSuffix(base, ext)
+			return packageSingleFile(skillName, clean)
+		}
+	}
+
+	// 2. Search skill directories across searchRoots
+	skillDirPatterns := []string{
+		".agents/skills",
+		".gemini/skills",
+		".antigravity/skills",
+		".claude/skills",
+		".opencode/skills",
+		".sila/skills",
+		"skills",
+	}
+	for _, root := range searchRoots {
+		if root == "" {
+			continue
+		}
+		for _, pat := range skillDirPatterns {
+			candDir := filepath.Join(root, pat, clean)
+			if _, err := os.Stat(filepath.Join(candDir, "SKILL.md")); err == nil {
+				return clean, candDir, nop, nil
+			}
+		}
+	}
+
+	// 3. Search single-file rules, slash commands, and workflows across searchRoots
+	singleFilePatterns := []struct {
+		dir string
+		ext string
+	}{
+		{".cursor/rules", ".mdc"},
+		{".cursor/rules", ".md"},
+		{".windsurf/rules", ".md"},
+		{".claude/commands", ".md"},
+		{".gemini/commands", ".md"},
+		{".gemini/antigravity/global_workflows", ".md"},
+		{".agents/workflows", ".md"},
+		{".windsurf/workflows", ".md"},
+		{".cursor/commands", ".md"},
+	}
+	for _, root := range searchRoots {
+		if root == "" {
+			continue
+		}
+		for _, pat := range singleFilePatterns {
+			candFile := filepath.Join(root, pat.dir, clean+pat.ext)
+			if info, err := os.Stat(candFile); err == nil && !info.IsDir() {
+				return packageSingleFile(clean, candFile)
+			}
+		}
+	}
+
+	return "", "", nop, fmt.Errorf("skill, rule, or command %q not found in local workspace or home harness directories", clean)
+}
+
+

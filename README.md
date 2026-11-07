@@ -2,7 +2,7 @@
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/jadmadi/dojo.svg)](https://pkg.go.dev/github.com/jadmadi/dojo)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/badge/release-v1.1.0-green.svg)](https://github.com/jadmadi/dojo/releases)
+[![Release](https://img.shields.io/badge/release-v1.1.2-green.svg)](https://github.com/jadmadi/dojo/releases)
 
 `dojo` is a static Go command-line tool and Model Context Protocol (MCP) server for finding, streaming, auditing, and synchronizing **Agent Skills** (`SKILL.md`) across local workstations and cloud VMs (`agy-vm`). Coding agents can inspect a skill's Table of Contents (`dojo toc`), stream individual `#sections` (`dojo load <skill>#<section>`) to save 70–90% of context tokens, maintain a portable `skills.json` manifest (`dojo profile`), and bi-directionally reconcile and project skills across **Antigravity (Desktop & CLI)**, Claude Code, Cursor, Windsurf, OpenCode, and Sila (`dojo sila` / `dojo sync`).
 
@@ -46,7 +46,7 @@ Every `dojo` command supports human-readable terminal output by default, structu
 | `dojo run <skill> <script>` | Run a bundled script (`uv`, `python3`, `bun`, `deno`, `node`, `bash`) | Passes trailing arguments directly to script |
 | `dojo learn <skill>` | Install a skill locally (`.agents/skills/`) or globally (`-g`) | `-g, --global`, `--with-deps`, `-t, --target <harnesses>` |
 | `dojo sync` / `dojo sila` | Bi-directionally reconcile and project skills across Antigravity, Claude, Cursor, Windsurf, OpenCode, and Sila | `-t, --target <list>`, `-g, --global`, `--one-way` |
-| `dojo profile <subcommand>` | Export, apply, or sync a portable `skills.json` manifest (local, HTTP, or `github:owner/repo`) | `export`, `apply`, `sync`, `-g, --global`, `--push` |
+| `dojo profile <subcommand>` | Export, apply, sync, or push skills/commands and `skills.json` across local machines and `agy-vm` | `export`, `apply`, `sync`, `push`, `-g, --global`, `--all` |
 | `dojo init [--workspace \| <name>]` | Initialize a multi-harness workspace (`-w`) or scaffold a new skill package | `-w, --workspace`, `-d, --dir <path>`, `-c, --category <name>` |
 | `dojo completion <shell>` | Generate shell tab-completion scripts (`bash`, `zsh`, `fish`, `powershell`) | Dynamic skill, `#section`, and `--target` completions |
 | `dojo mcp` | Start the JSON-RPC 2.0 MCP server over `stdio` | `--print-schema` |
@@ -99,23 +99,27 @@ dojo sila --target antigravity,cursor,claude
 dojo sync --one-way
 ```
 
-### Traveling `skills.json` and local-to-cloud continuity (`profile` and `init --workspace`)
+### Traveling `skills.json` and moving local skills/commands to `agy-vm` (`profile` and `init --workspace`)
 
-Commit a declarative `skills.json` manifest to your project repository or personal dotfiles/VM repo (such as `jadmadi/agy-vm`) so your exact catalogs, skills, and harness projections travel between your local laptop and cloud VMs:
+Commit a declarative `skills.json` manifest to your project repository or personal dotfiles/VM repo (such as `jadmadi/agy-vm`) so your exact catalogs, skills, and harness projections travel between your local laptop and cloud VMs.
+
+When you tell your local coding agent **"I need `x` and `y` in my `agy-vm`"**, `dojo profile push` locates `x` and `y` across your local workspace and `~/` home directory (including skill directories in `.agents/skills`, `.gemini/skills`, `.claude/skills`, Cursor/Windsurf rules in `.cursor/rules/*.mdc`, and slash commands/workflows in `.claude/commands/*.md`, `.gemini/commands/*.md`, or `.agents/workflows/*.md`), packages any single-file rules or commands into compliant `SKILL.md` directories, updates `skills.json`, and commits and pushes them to your profile repository:
 
 ```bash
-# Bootstrap a workspace: reconciles existing harness skills, creates skills.json, and projects harnesses
-dojo init --workspace
+# 1. On your local machine: push specific local skills, .mdc rules, or slash commands to your agy-vm repo
+dojo profile push github:jadmadi/agy-vm my-skill my-slash-command
 
-# Export your current workspace or global (-g) skills into skills.json
-dojo profile export
+#    Or push from explicit file/directory paths:
+dojo profile push github:jadmadi/agy-vm ~/.claude/commands/deploy.md ~/.agents/skills/go-review
 
-# Apply a local skills.json, HTTP URL, or public/private GitHub repository manifest
-# (Private repos authenticate via GITHUB_TOKEN, GH_TOKEN, or logged-in `gh` CLI)
-dojo profile apply
+# 2. On agy-vm (or any other workstation): apply the profile (supports public & private repos via GITHUB_TOKEN or `gh` CLI)
 dojo profile apply github:jadmadi/agy-vm -g
 
-# Reconcile harness edits, apply skills.json, update skills.json, and optionally git commit & push
+# 3. Bootstrap a project workspace: reconciles existing harness skills, creates skills.json, and projects harnesses
+dojo init --workspace
+
+# 4. Export or sync your current workspace/global (-g) skills into skills.json
+dojo profile export
 dojo profile sync --push
 ```
 

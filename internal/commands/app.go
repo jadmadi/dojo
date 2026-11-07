@@ -806,24 +806,19 @@ FLAGS:
 		return true
 	case "profile", "manifest":
 		_, _ = fmt.Fprintln(w, `USAGE:
-  dojo profile <export|apply|sync> [source] [flags]
+  dojo profile <export|apply|sync|push> [arguments...] [flags]
 
-Manage portable skills.json manifests for local<->cloud VM and team skill continuity.
+Manage portable skills.json manifests and migrate skills/commands between local workstations and cloud VMs (agy-vm).
 
 SUBCOMMANDS:
-  export [-f <file>] [-g] [--target <targets>]
+  export [-o <file>] [-g]
       Export currently installed skills and active harness targets to skills.json.
-  apply [source] [-f <file>] [-g] [--target <targets>]
-      Install catalogs, learn skills, and project harnesses declared in a local, HTTP, or github:owner/repo skills.json.
-  sync [source] [-f <file>] [-g] [--target <targets>]
-      Reconcile harness edits, apply skills.json, and update skills.json with newly discovered local skills.
-
-FLAGS:
-  -f, --file <source>     Path, URL, or github:owner/repo reference to skills.json (default: skills.json)
-  -g, --global            Operate on global scope (~/.agents/skills)
-  -t, --target <targets>  Override harness projection targets
-      --json              Output in JSON format
-      --raw               Output in raw tab-separated format`)
+  apply [source] [-g]
+      Install catalogs, learn skills, and project harnesses declared in a local, HTTP, or public/private github:owner/repo skills.json.
+  push <github:owner/repo | dir> <skill-or-command...> [--all] [-g]
+      Package local skills, Cursor/Windsurf rules (.mdc/.md), or slash commands (.claude/commands/*.md, .gemini/commands/*.md) and push them to a profile repo or directory.
+  sync [--dir <path>] [-g] [--push]
+      Reconcile harness edits, apply skills.json, and update skills.json with newly discovered local skills.`)
 		return true
 	case "completion", "completions":
 		_, _ = fmt.Fprintln(w, `USAGE:
