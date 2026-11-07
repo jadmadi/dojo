@@ -159,6 +159,12 @@ go run . doctor --skills --security
 | `internal/search` | Hybrid BM25, TF-IDF, prefix, and Levenshtein fuzzy search engine |
 | `internal/state` | POSIX `flock`-synchronized state tracking (`state.json`) for installed skills and catalogs |
 
+## Why the name Dojo?
+
+The project originated as a fork of `kungfu` (功夫), paying homage to the iconic *Matrix* moment: *"I know Kung Fu."* While Kung Fu represents individual skill acquired through time and effort, a **Dojo** (道場, literally *"place of the Way"*) shifts the perspective from a single technique to the **training ground itself**. 
+
+Transitioning from Chinese martial arts terminology (*Kung Fu*) to Japanese (*Dojo*) carries the philosophy forward: a dojo is where disciplines are practiced, rules are refined, and mastery is tested. In the era of autonomous AI coding agents, skills should not live in isolated silos or single-vendor setups. `dojo` provides the shared training ground and continuity engine where agents across Claude, Cursor, Windsurf, Gemini, and Sila learn, verify, and master skills together.
+
 ## License and contributing
 
 Licensed under the [Apache License 2.0](LICENSE). Contributions are welcome—see [CONTRIBUTING.md](CONTRIBUTING.md) and [BACKLOG.md](BACKLOG.md).
