@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Actionable `EXAMPLES` block appended to `dojo list` output detailing `dojo profile push`, `dojo show`, `dojo toc`, `dojo load`, and `dojo learn`.
+- Concrete usage examples documented after every argument and flag in `dojo list` output and CLI help.
+- Category and search keyword filtering support (`dojo list [category|filter]`).
+
 ## [1.1.5] - 2026-11-07
 
 ### Fixed

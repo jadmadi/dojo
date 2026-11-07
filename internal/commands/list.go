@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/jadmadi/dojo/internal/catalog"
 )
 
 func (a *App) RunList(args []string) int {
@@ -30,7 +32,7 @@ func (a *App) RunList(args []string) int {
 	fs.BoolVar(&jsonFlag, "json", false, "Output in JSON format")
 	fs.BoolVar(&rawFlag, "raw", false, "Output in raw format")
 
-	_, err := parseFlagsWithArgs(fs, args)
+	posArgs, err := parseFlagsWithArgs(fs, args)
 	if err != nil {
 		return ExitUsage
 	}
@@ -38,6 +40,23 @@ func (a *App) RunList(args []string) int {
 	mode := a.resolveMode(jsonFlag, rawFlag)
 
 	items := a.Store.All()
+
+	var filterQuery string
+	if len(posArgs) > 0 {
+		filterQuery = strings.ToLower(strings.TrimSpace(posArgs[0]))
+	}
+
+	if filterQuery != "" {
+		var filtered []catalog.Item
+		for _, it := range items {
+			if strings.EqualFold(it.Category, filterQuery) ||
+				strings.Contains(strings.ToLower(it.Name), filterQuery) ||
+				strings.Contains(strings.ToLower(it.Description), filterQuery) {
+				filtered = append(filtered, it)
+			}
+		}
+		items = filtered
+	}
 
 	if len(items) == 0 {
 		if mode == OutputModeJSON {
@@ -47,7 +66,11 @@ func (a *App) RunList(args []string) int {
 		if mode == OutputModeRaw {
 			return ExitSuccess
 		}
-		_, _ = fmt.Fprintln(a.Stderr, "error: no skills found in catalog")
+		if filterQuery != "" {
+			_, _ = fmt.Fprintf(a.Stderr, "error: no skills found matching %q\n", filterQuery)
+		} else {
+			_, _ = fmt.Fprintln(a.Stderr, "error: no skills found in catalog")
+		}
 		return ExitNotFound
 	}
 
@@ -92,7 +115,11 @@ func (a *App) RunList(args []string) int {
 		}
 		return ExitSuccess
 	default: // OutputModeHuman
-		_, _ = fmt.Fprintf(a.Stdout, "AVAILABLE SKILLS (%d total):\n\n", len(listings))
+		if filterQuery != "" {
+			_, _ = fmt.Fprintf(a.Stdout, "AVAILABLE SKILLS (matching %q, %d total):\n\n", filterQuery, len(listings))
+		} else {
+			_, _ = fmt.Fprintf(a.Stdout, "AVAILABLE SKILLS (%d total):\n\n", len(listings))
+		}
 		_, _ = fmt.Fprintf(a.Stdout, "%-4s %-22s %-14s %-12s %s\n", "#", "NAME", "CATEGORY", "STATUS", "DESCRIPTION")
 		_, _ = fmt.Fprintf(a.Stdout, "%-4s %-22s %-14s %-12s %s\n", "---", "----------------------", "--------------", "------------", "--------------------------------------------------")
 		for idx, l := range listings {
@@ -100,6 +127,35 @@ func (a *App) RunList(args []string) int {
 			desc := truncateRunes(l.Description, 56)
 			_, _ = fmt.Fprintf(a.Stdout, "%-4d %-22s %-14s %-12s %s\n", idx+1, l.Name, l.Category, statusBadge, desc)
 		}
+
+		_, _ = fmt.Fprintf(a.Stdout, "\nEXAMPLES:\n")
+		_, _ = fmt.Fprintf(a.Stdout, "  Push skills to a remote profile repo or directory:\n")
+		_, _ = fmt.Fprintf(a.Stdout, "    <target>                github:owner/repo or directory path\n")
+		_, _ = fmt.Fprintf(a.Stdout, "                            Example: dojo profile push github:owner/repo 1,4,6 -g\n")
+		_, _ = fmt.Fprintf(a.Stdout, "    <skills...>             List numbers (1,4,6) or skill names (retro,cli-reviewer)\n")
+		_, _ = fmt.Fprintf(a.Stdout, "                            Example: dojo profile push github:owner/repo retro -g\n")
+		_, _ = fmt.Fprintf(a.Stdout, "    --all                   Push all installed skills\n")
+		_, _ = fmt.Fprintf(a.Stdout, "                            Example: dojo profile push github:owner/repo --all -g\n")
+		_, _ = fmt.Fprintf(a.Stdout, "    -g, --global            Push from global store (~/.gemini/skills)\n")
+		_, _ = fmt.Fprintf(a.Stdout, "                            Example: dojo profile push github:owner/repo 1,2 -g\n\n")
+
+		_, _ = fmt.Fprintf(a.Stdout, "  Inspect skill metadata and table of contents:\n")
+		_, _ = fmt.Fprintf(a.Stdout, "    <number>                Skill number from the list above\n")
+		_, _ = fmt.Fprintf(a.Stdout, "                            Example: dojo show 1\n")
+		_, _ = fmt.Fprintf(a.Stdout, "    <name>                  Skill name\n")
+		_, _ = fmt.Fprintf(a.Stdout, "                            Example: dojo toc retro\n\n")
+
+		_, _ = fmt.Fprintf(a.Stdout, "  Stream skill instructions into agent context:\n")
+		_, _ = fmt.Fprintf(a.Stdout, "    <number>                Skill number\n")
+		_, _ = fmt.Fprintf(a.Stdout, "                            Example: dojo load 1\n")
+		_, _ = fmt.Fprintf(a.Stdout, "    <number#section>        Specific #section to minimize tokens\n")
+		_, _ = fmt.Fprintf(a.Stdout, "                            Example: dojo load 1#architecture\n\n")
+
+		_, _ = fmt.Fprintf(a.Stdout, "  Install / learn skills into local or global scope:\n")
+		_, _ = fmt.Fprintf(a.Stdout, "    <number> [-g]           Install skill by list number\n")
+		_, _ = fmt.Fprintf(a.Stdout, "                            Example: dojo learn 1 -g\n")
+		_, _ = fmt.Fprintf(a.Stdout, "    <name> [-g]             Install skill by name\n")
+		_, _ = fmt.Fprintf(a.Stdout, "                            Example: dojo learn retro -g\n")
 		return ExitSuccess
 	}
 }

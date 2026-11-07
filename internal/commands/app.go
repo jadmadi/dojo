@@ -816,13 +816,36 @@ Execute bundled skill scripts (supports Python/uv, Node/Bun/Deno, Shell).`)
 		return true
 	case "list", "ls":
 		_, _ = fmt.Fprintln(w, `USAGE:
-  dojo list [flags]
+  dojo list [category|filter] [flags]
 
 List all available skills across configured catalogs and local scopes.
 
+ARGUMENTS:
+  [category|filter]         Filter skills by category name or search keyword
+                            Example: dojo list agents
+                            Example: dojo list coding
+
 FLAGS:
-  --json   Output in JSON format
-  --raw    Output in raw tab-separated format`)
+  --json                    Output in JSON format
+                            Example: dojo list --json
+  --raw                     Output in raw tab-separated format
+                            Example: dojo list --raw
+
+EXAMPLES:
+  # Push skills to a remote profile repo
+  dojo profile push github:owner/repo 1,4,6 -g
+  dojo profile push github:owner/repo retro -g
+
+  # Inspect skill metadata or table of contents by list number
+  dojo show 1
+  dojo toc 1
+
+  # Stream skill instructions into agent context
+  dojo load 1
+  dojo load 1#architecture
+
+  # Install skills by list number
+  dojo learn 1 -g`)
 		return true
 	case "show", "info":
 		_, _ = fmt.Fprintln(w, `USAGE:

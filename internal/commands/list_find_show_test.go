@@ -85,7 +85,35 @@ func TestRunList(t *testing.T) {
 				if !strings.Contains(out, "kungfu") {
 					t.Errorf("list human missing kungfu skill: %s", out)
 				}
+				if !strings.Contains(out, "EXAMPLES:") {
+					t.Errorf("list human missing EXAMPLES section: %s", out)
+				}
+				if !strings.Contains(out, "dojo profile push") {
+					t.Errorf("list human missing dojo profile push example: %s", out)
+				}
+				if !strings.Contains(out, "Example: dojo profile push github:owner/repo 1,4,6 -g") {
+					t.Errorf("list human missing concrete push usage example: %s", out)
+				}
 			},
+		},
+		{
+			name:     "list filter matching category",
+			args:     []string{"list", "agents"},
+			wantCode: ExitSuccess,
+			checkOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "AVAILABLE SKILLS") {
+					t.Errorf("filtered list missing header: %s", out)
+				}
+				if !strings.Contains(out, "kungfu") {
+					t.Errorf("filtered list missing kungfu: %s", out)
+				}
+			},
+		},
+		{
+			name:     "list filter non matching",
+			args:     []string{"list", "non_existent_category_xyz_123"},
+			wantCode: ExitNotFound,
+			checkOut: func(t *testing.T, out string) {},
 		},
 		{
 			name:     "list json",
