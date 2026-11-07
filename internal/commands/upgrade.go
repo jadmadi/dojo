@@ -103,12 +103,19 @@ func (a *App) RunUpgrade(args []string) int {
 		status = "update_available"
 	}
 
+	var manualSyncMsg string
 	if !checkFlag && (hasUpdate || forceFlag) {
 		if upgradedErr := a.performSelfUpgrade(ctx, rel, latestVer); upgradedErr != nil {
-			_, _ = fmt.Fprintf(a.Stderr, "error: self-upgrade failed: %v\n", upgradedErr)
-			return ExitGeneral
+			if strings.HasPrefix(upgradedErr.Error(), "manual_sync:") {
+				manualSyncMsg = strings.TrimPrefix(upgradedErr.Error(), "manual_sync:")
+				status = "sync_required"
+			} else {
+				_, _ = fmt.Fprintf(a.Stderr, "error: self-upgrade failed: %v\n", upgradedErr)
+				return ExitGeneral
+			}
+		} else {
+			status = "upgraded"
 		}
-		status = "upgraded"
 	}
 
 	switch mode {
@@ -137,6 +144,8 @@ func (a *App) RunUpgrade(args []string) int {
 		switch status {
 		case "upgraded":
 			_, _ = fmt.Fprintf(a.Stdout, "✓ Upgraded dojo %s -> %s\n", currentVer, latestVer)
+		case "sync_required":
+			_, _ = fmt.Fprintln(a.Stdout, manualSyncMsg)
 		case "update_available":
 			_, _ = fmt.Fprintf(a.Stdout, "↑ Update available: dojo %s -> %s (run 'dojo upgrade' to install)\n", currentVer, latestVer)
 		default:
@@ -174,7 +183,7 @@ func (a *App) performSelfUpgrade(ctx context.Context, rel githubRelease, targetV
 			if err != nil {
 				return err
 			}
-			tmpPath := filepath.Join(filepath.Dir(exePath), ".dojo-upgrade.tmp")
+			tmpPath := filepath.Join(filepath.Dir(exePath), fmt.Sprintf(".dojo-upgrade.%d.tmp", os.Getpid()))
 			if err := os.WriteFile(tmpPath, binData, 0755); err != nil {
 				return err
 			}
@@ -191,54 +200,110 @@ func (a *App) performSelfUpgrade(ctx context.Context, rel githubRelease, targetV
 		if targetVer != "" {
 			ref = "v" + strings.TrimPrefix(targetVer, "v")
 		}
+		installStart := time.Now().Add(-2 * time.Second)
 		cmd := exec.CommandContext(ctx, goBin, "install", "github.com/jadmadi/dojo/cmd/dojo@"+ref)
 		cmd.Env = append(os.Environ(), "GOPROXY=direct")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("go install failed: %v (%s)", err, strings.TrimSpace(string(out)))
 		}
 
-		gobin := os.Getenv("GOBIN")
-		if gobin == "" {
-			if out, gErr := exec.Command(goBin, "env", "GOBIN").Output(); gErr == nil && len(strings.TrimSpace(string(out))) > 0 {
-				gobin = strings.TrimSpace(string(out))
-			}
-		}
-		if gobin == "" {
-			gopath := os.Getenv("GOPATH")
-			if gopath == "" {
-				if out, gErr := exec.Command(goBin, "env", "GOPATH").Output(); gErr == nil && len(strings.TrimSpace(string(out))) > 0 {
-					gopath = strings.TrimSpace(string(out))
-				}
-			}
-			if gopath == "" {
-				home, _ := os.UserHomeDir()
-				gopath = filepath.Join(home, "go")
-			}
-			gobin = filepath.Join(gopath, "bin")
-		}
-		installedBin := filepath.Join(gobin, "dojo")
-		if runtime.GOOS == "windows" {
-			installedBin += ".exe"
+		installedBin := findInstalledGoBin(goBin, installStart)
+		if installedBin == "" {
+			return nil
 		}
 
 		if exePath, exeErr := os.Executable(); exeErr == nil && exePath != "" {
 			cleanExe, _ := filepath.EvalSymlinks(exePath)
 			cleanInstalled, _ := filepath.EvalSymlinks(installedBin)
-			if cleanExe != cleanInstalled {
+			if cleanExe != "" && cleanInstalled != "" && cleanExe != cleanInstalled {
+				copied := false
 				if binData, rErr := os.ReadFile(installedBin); rErr == nil {
-					tmpPath := filepath.Join(filepath.Dir(cleanExe), ".dojo-upgrade.tmp")
+					tmpPath := filepath.Join(filepath.Dir(cleanExe), fmt.Sprintf(".dojo-upgrade.%d.tmp", os.Getpid()))
 					if wErr := os.WriteFile(tmpPath, binData, 0755); wErr == nil {
 						if renErr := os.Rename(tmpPath, cleanExe); renErr == nil {
-							return nil
+							copied = true
+						} else {
+							_ = os.Remove(tmpPath)
 						}
-						_ = os.Remove(tmpPath)
 					}
 				}
-				_, _ = fmt.Fprintf(a.Stdout, "Notice: upgraded binary installed to %s.\nIf your shell runs %s, update your PATH or run:\n  sudo cp %s %s && hash -r\n", installedBin, exePath, installedBin, exePath)
+				if !copied {
+					return fmt.Errorf("manual_sync:Notice: upgraded binary installed to %s.\nActive executable %s could not be automatically replaced (insufficient permissions).\nTo use the upgraded version, update your PATH or run:\n  sudo cp %s %s && hash -r", installedBin, exePath, installedBin, exePath)
+				}
 			}
 		}
 		return nil
 	}
 
 	return fmt.Errorf("no prebuilt binary asset found for %s/%s and 'go' toolchain not in PATH", runtime.GOOS, runtime.GOARCH)
+}
+
+func findInstalledGoBin(goBin string, installStart time.Time) string {
+	binName := "dojo"
+	if runtime.GOOS == "windows" {
+		binName = "dojo.exe"
+	}
+
+	var candidateDirs []string
+	if gobin := os.Getenv("GOBIN"); gobin != "" {
+		candidateDirs = append(candidateDirs, gobin)
+	}
+	if out, err := exec.Command(goBin, "env", "GOBIN").Output(); err == nil {
+		if s := strings.TrimSpace(string(out)); s != "" {
+			candidateDirs = append(candidateDirs, s)
+		}
+	}
+	if goBinDir := filepath.Dir(goBin); goBinDir != "" {
+		candidateDirs = append(candidateDirs, goBinDir)
+	}
+	if gopath := os.Getenv("GOPATH"); gopath != "" {
+		for _, p := range filepath.SplitList(gopath) {
+			candidateDirs = append(candidateDirs, filepath.Join(p, "bin"))
+		}
+	}
+	if out, err := exec.Command(goBin, "env", "GOPATH").Output(); err == nil {
+		for _, p := range filepath.SplitList(strings.TrimSpace(string(out))) {
+			candidateDirs = append(candidateDirs, filepath.Join(p, "bin"))
+		}
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		candidateDirs = append(candidateDirs, filepath.Join(home, "go", "bin"))
+	}
+	for _, p := range filepath.SplitList(os.Getenv("PATH")) {
+		candidateDirs = append(candidateDirs, p)
+	}
+
+	seen := make(map[string]bool)
+	var newestPath string
+	var newestMod time.Time
+
+	for _, dir := range candidateDirs {
+		cand := filepath.Clean(filepath.Join(dir, binName))
+		if seen[cand] {
+			continue
+		}
+		seen[cand] = true
+
+		fi, err := os.Stat(cand)
+		if err != nil || fi.IsDir() {
+			continue
+		}
+
+		if fi.ModTime().After(installStart) {
+			return cand
+		}
+		if fi.ModTime().After(newestMod) {
+			newestMod = fi.ModTime()
+			newestPath = cand
+		}
+	}
+
+	if newestPath != "" {
+		return newestPath
+	}
+
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		return filepath.Join(home, "go", "bin", binName)
+	}
+	return filepath.Join(filepath.Dir(goBin), binName)
 }
