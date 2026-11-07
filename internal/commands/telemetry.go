@@ -66,12 +66,12 @@ func (a *App) resolveOfficialSkillCategory(skillName string) (string, bool) {
 	return cat, true
 }
 
-// RunTelemetry implements the 'kungfu telemetry' command family.
+// RunTelemetry implements the 'dojo telemetry' command family.
 func (a *App) RunTelemetry(args []string) int {
 	for _, arg := range args {
 		if arg == "--help" || arg == "-h" || arg == "help" {
 			_, _ = fmt.Fprintln(a.Stdout, `USAGE:
-  kungfu telemetry [status|enable|disable|sync] [--json] [--raw]
+  dojo telemetry [status|enable|disable|sync] [--json] [--raw]
 
 SUBCOMMANDS:
   status   Show telemetry status and pending official skill deltas (default).
@@ -93,7 +93,7 @@ SUBCOMMANDS:
 		return ExitUsage
 	}
 	if len(posArgs) > 1 {
-		_, _ = fmt.Fprintf(a.Stderr, "error: unexpected argument %q. Run 'kungfu telemetry --help' for usage.\n", posArgs[1])
+		_, _ = fmt.Fprintf(a.Stderr, "error: unexpected argument %q. Run 'dojo telemetry --help' for usage.\n", posArgs[1])
 		return ExitUsage
 	}
 
@@ -228,7 +228,7 @@ func (a *App) runTelemetrySync(mode OutputMode) int {
 		if dnt := strings.ToLower(strings.TrimSpace(os.Getenv("DO_NOT_TRACK"))); dnt == "1" || dnt == "true" {
 			_, _ = fmt.Fprintln(a.Stderr, "error: telemetry is disabled because DO_NOT_TRACK is set")
 		} else {
-			_, _ = fmt.Fprintln(a.Stderr, "error: telemetry is disabled; run 'kungfu telemetry enable' first")
+			_, _ = fmt.Fprintln(a.Stderr, "error: telemetry is disabled; run 'dojo telemetry enable' first")
 		}
 		return ExitGeneral
 	}

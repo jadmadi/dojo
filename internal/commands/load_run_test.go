@@ -288,7 +288,7 @@ func TestRunLoad_Pagination(t *testing.T) {
 		t.Fatalf("RunLoad page 1 failed: %d, stderr: %s", code, stderr.String())
 	}
 	out1 := stdout.String()
-	if !strings.Contains(out1, "[Page 1 of") || !strings.Contains(out1, "Next: kungfu load kungfu -p 2]") {
+	if !strings.Contains(out1, "[Page 1 of") || !strings.Contains(out1, "Next: dojo load kungfu -p 2]") {
 		t.Errorf("expected page 1 footer with next page hint, got: %s", out1)
 	}
 	if strings.Contains(out1, "--full") {

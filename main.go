@@ -36,7 +36,7 @@ func main() {
 	os.Exit(code)
 }
 
-// Run executes the command line entrypoint for kungfu CLI.
+// Run executes the command line entrypoint for dojo CLI.
 func Run(args []string, stdout, stderr io.Writer) int {
 	return commands.Run(args, stdout, stderr)
 }

@@ -217,7 +217,7 @@ func (a *App) RunStatus(args []string) int {
 						ver = "unversioned"
 					}
 					if rec.Origin == state.OriginCustom {
-						_, _ = fmt.Fprintf(a.Stdout, "  • %-20s %-12s (%d files, custom - read-only to kungfu)\n", rec.Name, ver, len(rec.Files))
+						_, _ = fmt.Fprintf(a.Stdout, "  • %-20s %-12s (%d files, custom - read-only to dojo)\n", rec.Name, ver, len(rec.Files))
 					} else {
 						_, _ = fmt.Fprintf(a.Stdout, "  ✓ %-20s %-12s (%d files, installed %s)\n", rec.Name, ver, len(rec.Files), rec.InstalledAt.Format("2006-01-02"))
 					}
@@ -242,7 +242,7 @@ func (a *App) RunStatus(args []string) int {
 					ver = "unversioned"
 				}
 				if rec.Origin == state.OriginCustom {
-					_, _ = fmt.Fprintf(a.Stdout, "  • %-20s %-12s (%d files, custom - read-only to kungfu)\n", rec.Name, ver, len(rec.Files))
+					_, _ = fmt.Fprintf(a.Stdout, "  • %-20s %-12s (%d files, custom - read-only to dojo)\n", rec.Name, ver, len(rec.Files))
 				} else {
 					_, _ = fmt.Fprintf(a.Stdout, "  ✓ %-20s %-12s (%d files, installed %s)\n", rec.Name, ver, len(rec.Files), rec.InstalledAt.Format("2006-01-02"))
 				}

@@ -546,9 +546,13 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 
-	if showHelp || (cmdName == "" && len(globalArgs) == 0) || cmdName == "help" {
+	if showHelp || cmdName == "" || cmdName == "help" {
+		if cmdName == "" && opts.Verbose && !showHelp {
+			_, _ = fmt.Fprintf(stdout, "dojo version %s\n", version.Get())
+			return ExitSuccess
+		}
 		PrintGlobalHelp(stdout)
-		if cmdName == "" && len(globalArgs) == 0 {
+		if cmdName == "" && !showHelp {
 			return ExitUsage
 		}
 		return ExitSuccess
@@ -995,8 +999,8 @@ COMMANDS:
              Install skills to workspace or global scope.
   sync       [skill...] [--target <all|claude,cursor,antigravity,windsurf,opencode,sila>] [-g] [--one-way]
              Bi-directionally reconcile and project skills across agent harnesses (alias: sila).
-  profile    <export|apply|sync> [source] [-f <file>] [-g] [--target <harnesses>]
-             Export, apply, or sync portable skills.json manifests (local, HTTP, or github:owner/repo).
+  profile    <export|apply|sync|push> [source] [-f <file>] [-g] [--target <harnesses>]
+             Export, apply, sync, or push portable skills.json manifests (local, HTTP, or github:owner/repo).
   init       [--workspace | <skill-name>] [--dir <path>] [--category <cat>]
              Initialize a multi-harness workspace (--workspace / -w) or scaffold a new Agent Skill package.
   doctor     [--skills] [--security] [-g] [--json]

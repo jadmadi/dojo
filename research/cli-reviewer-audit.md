@@ -128,3 +128,14 @@ However, a few branding artifacts from its sister project `kungfu`, an incomplet
 - **Receipt**:
   Running `dojo -v` produces `error: unknown command "". Run 'dojo --help' for available commands and usage.`
 - **Fix**: If `-v` is provided without a subcommand or additional arguments, print the version (or a hint that `-V` is `--version` and `-v` is `--verbose`).
+
+---
+
+## 5. Resolution & Implementation Status
+
+All findings have been resolved in the codebase:
+- [x] **Finding 1 (Branding)**: Fixed in `internal/commands/run.go`, `internal/commands/load.go`, `internal/commands/update.go`, `internal/commands/telemetry.go`, `internal/commands/status.go`, and `internal/runner/runner.go`. Companion script regex now supports both `dojo run` and legacy `kungfu run`.
+- [x] **Finding 2 (Profile Help)**: Updated root `PrintGlobalHelp` in `internal/commands/app.go` to explicitly list `<export|apply|sync|push>`.
+- [x] **Finding 3 (Bare `-v` Version Handling)**: Updated `internal/commands/app.go` command dispatch to print `dojo version <version>` and exit 0 when bare `-v` or `--verbose` is provided without a command, eliminating the `unknown command ""` error.
+- [x] **Test Coverage**: Added test cases in `main_test.go` and `internal/commands/load_run_test.go` verifying bare `-v`, `--verbose`, `dojo run` usage branding, and root help text. 100% test pass rate across all packages.
+

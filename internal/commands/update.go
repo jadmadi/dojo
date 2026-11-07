@@ -443,9 +443,9 @@ func (a *App) RunUpdate(args []string) int {
 
 			if hasAnyUpdates {
 				if globalFlag {
-					_, _ = fmt.Fprintln(a.Stdout, "\nRun 'kungfu update -g <skill>' or 'kungfu update -g --all' to apply updates.")
+					_, _ = fmt.Fprintln(a.Stdout, "\nRun 'dojo update -g <skill>' or 'dojo update -g --all' to apply updates.")
 				} else {
-					_, _ = fmt.Fprintln(a.Stdout, "\nRun 'kungfu update <skill>' or 'kungfu update --all' to apply updates.")
+					_, _ = fmt.Fprintln(a.Stdout, "\nRun 'dojo update <skill>' or 'dojo update --all' to apply updates.")
 				}
 			} else if !hasAnyErrors {
 				_, _ = fmt.Fprintln(a.Stdout, "\nAll installed skills are up to date.")
@@ -466,7 +466,7 @@ func (a *App) RunUpdate(args []string) int {
 						if len(suggs) > 0 {
 							_, _ = fmt.Fprintln(a.Stderr, "\nDid you mean:")
 							for _, s := range suggs {
-								_, _ = fmt.Fprintf(a.Stderr, "  - kungfu update %s\n", s)
+								_, _ = fmt.Fprintf(a.Stderr, "  - dojo update %s\n", s)
 							}
 						}
 					}

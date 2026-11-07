@@ -402,7 +402,7 @@ func (a *App) RunLoad(args []string) int {
 	if totalPages > 1 && !fullFlag && mode != OutputModeRaw {
 		sb.WriteString("\n---\n")
 		if pageFlag < totalPages {
-			_, _ = fmt.Fprintf(&sb, "[Page %d of %d • Next: kungfu load %s -p %d]\n", pageFlag, totalPages, spec, pageFlag+1)
+			_, _ = fmt.Fprintf(&sb, "[Page %d of %d • Next: dojo load %s -p %d]\n", pageFlag, totalPages, spec, pageFlag+1)
 		} else {
 			_, _ = fmt.Fprintf(&sb, "[Page %d of %d • End of document]\n", pageFlag, totalPages)
 		}
@@ -449,7 +449,7 @@ func (a *App) loadItemContentWithOpts(item *catalog.Item, localOnly, forceUpdate
 		if data, err := os.ReadFile(cachedMD); err == nil && len(data) > 0 {
 			return string(data), nil
 		}
-		return "", fmt.Errorf("skill %q not found in local cache. Run 'kungfu load %s' to fetch from remote", item.Name, item.Name)
+		return "", fmt.Errorf("skill %q not found in local cache. Run 'dojo load %s' to fetch from remote", item.Name, item.Name)
 	}
 
 	// 2. Normal load or update load
@@ -506,7 +506,7 @@ func (a *App) loadItemContentWithOpts(item *catalog.Item, localOnly, forceUpdate
 					}
 					return freshContent, nil
 				}
-				return "", fmt.Errorf("%w: upstream content for %q has changed (new digest %s); run 'kungfu load %s --update' to update", catalog.ErrDigestMismatch, item.Name, freshItem.Digest, item.Name)
+				return "", fmt.Errorf("%w: upstream content for %q has changed (new digest %s); run 'dojo load %s --update' to update", catalog.ErrDigestMismatch, item.Name, freshItem.Digest, item.Name)
 			}
 		}
 

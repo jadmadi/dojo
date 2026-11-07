@@ -723,7 +723,7 @@ var (
 	markdownImgRegex   = regexp.MustCompile(`!\[[^\]]*\]\(([^)#?]+)(?:[#?][^)]*)?\)`)
 	backtickPathRegex  = regexp.MustCompile("`((?:scripts|references|assets|evals)/[^`\\s]+)`")
 	prosePathRegex     = regexp.MustCompile(`(?:^|[\s"'` + "`" + `\(\)\[\]])((?:scripts|references|assets|evals)/[a-zA-Z0-9_\-\./]+\.[a-zA-Z0-9_]+)`)
-	kungfuRunRegex     = regexp.MustCompile(`kungfu\s+run\s+[a-zA-Z0-9_\-]+\s+([a-zA-Z0-9_\-\./]+)`)
+	dojoRunRegex       = regexp.MustCompile(`(?:dojo|kungfu)\s+run\s+[a-zA-Z0-9_\-]+\s+([a-zA-Z0-9_\-\./]+)`)
 	runnerCommandRegex = regexp.MustCompile(`(?:uv\s+run|python3?|bash|sh|node|bun(?:\s+run)?|deno(?:\s+run)?)\s+(?:\./)?scripts/([a-zA-Z0-9_\-\./]+\.[a-zA-Z0-9_]+)`)
 )
 
@@ -774,7 +774,7 @@ func ExtractCandidates(content string) []string {
 			add(m[1])
 		}
 	}
-	for _, m := range kungfuRunRegex.FindAllStringSubmatch(content, -1) {
+	for _, m := range dojoRunRegex.FindAllStringSubmatch(content, -1) {
 		if len(m) > 1 {
 			scr := strings.TrimPrefix(m[1], "./")
 			scr = strings.TrimPrefix(scr, "scripts/")

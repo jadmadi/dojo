@@ -32,7 +32,7 @@ func (a *App) RunRun(args []string) int {
 		return ExitSuccess
 	}
 	if len(args) == 0 {
-		_, _ = fmt.Fprintln(a.Stderr, "USAGE:\n  kungfu run <skill> <script> [args...]\n\nExecute bundled skill scripts (supports Python/uv, Node/Bun/Deno, Shell).")
+		_, _ = fmt.Fprintln(a.Stderr, "USAGE:\n  dojo run <skill> <script> [args...]\n\nExecute bundled skill scripts (supports Python/uv, Node/Bun/Deno, Shell).")
 		return ExitUsage
 	}
 	if len(args) < 2 {
@@ -62,7 +62,7 @@ func (a *App) RunRun(args []string) int {
 				if len(suggs) > 0 {
 					_, _ = fmt.Fprintln(a.Stderr, "\nDid you mean:")
 					for _, s := range suggs {
-						_, _ = fmt.Fprintf(a.Stderr, "  - kungfu run %s %s\n", skillName, s)
+						_, _ = fmt.Fprintf(a.Stderr, "  - dojo run %s %s\n", skillName, s)
 					}
 				}
 			}

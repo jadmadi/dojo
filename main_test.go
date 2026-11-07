@@ -50,7 +50,10 @@ func TestRun_CLI_Basics(t *testing.T) {
 	}{
 		{"version long", []string{"--version"}, ExitSuccess, "dojo version"},
 		{"version short", []string{"-V"}, ExitSuccess, "dojo version"},
-		{"help long", []string{"--help"}, ExitSuccess, "USAGE:"},
+		{"version lowercase -v", []string{"-v"}, ExitSuccess, "dojo version"},
+		{"verbose flag alone", []string{"--verbose"}, ExitSuccess, "dojo version"},
+		{"version command", []string{"version"}, ExitSuccess, "dojo version"},
+		{"help long", []string{"--help"}, ExitSuccess, "profile    <export|apply|sync|push>"},
 		{"help short", []string{"-h"}, ExitSuccess, "USAGE:"},
 		{"help command", []string{"help"}, ExitSuccess, "USAGE:"},
 		{"no args", []string{}, ExitUsage, "USAGE:"},
@@ -127,3 +130,19 @@ func TestRun_CLI_Load(t *testing.T) {
 		t.Errorf("expected markdown content: %s", stdout.String())
 	}
 }
+
+func TestRun_CLI_RunBranding(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"run"}, &stdout, &stderr)
+	if code != ExitUsage {
+		t.Fatalf("Run(run) = %d, want %d", code, ExitUsage)
+	}
+	errStr := stderr.String()
+	if !strings.Contains(errStr, "dojo run <skill> <script>") {
+		t.Errorf("expected 'dojo run <skill> <script>' in error, got: %s", errStr)
+	}
+	if strings.Contains(errStr, "kungfu run") {
+		t.Errorf("unexpected 'kungfu run' in error, got: %s", errStr)
+	}
+}
+
