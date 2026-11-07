@@ -1,0 +1,241 @@
+// Copyright 2026 The Dojo Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package commands
+
+import (
+	"context"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/jadmadi/dojo/internal/catalog"
+)
+
+func isGitHubSkillSpec(spec string) bool {
+	if strings.HasPrefix(spec, "github:") || strings.Contains(spec, "github.com") {
+		return true
+	}
+	if strings.HasPrefix(spec, ".") || strings.HasPrefix(spec, "/") {
+		return false
+	}
+	return strings.Count(spec, "/") >= 1
+}
+
+func isBundledSubpath(subpath string) bool {
+	if subpath == "" {
+		return false
+	}
+	first, _, _ := strings.Cut(strings.TrimPrefix(subpath, "/"), "/")
+	switch strings.ToLower(first) {
+	case "references", "reference", "scripts", "script", "assets", "asset", "examples", "example", "resources", "resource":
+		return true
+	default:
+		return false
+	}
+}
+
+func shouldProbeGitHubOnLoad(spec, subpath string) bool {
+	if !isGitHubSkillSpec(spec) {
+		return false
+	}
+	if strings.HasPrefix(spec, "github:") || strings.Contains(spec, "github.com") || strings.Contains(spec, "raw.githubusercontent.com") {
+		return true
+	}
+	return !isBundledSubpath(subpath)
+}
+
+func (a *App) RunShow(args []string) int {
+	fs := flag.NewFlagSet("show", flag.ContinueOnError)
+	fs.SetOutput(a.Stderr)
+	var jsonFlag, rawFlag bool
+
+	fs.BoolVar(&jsonFlag, "json", false, "Output in JSON format")
+	fs.BoolVar(&rawFlag, "raw", false, "Output in raw format")
+
+	posArgs, err := parseFlagsWithArgs(fs, args)
+	if err != nil {
+		return ExitUsage
+	}
+
+	mode := a.resolveMode(jsonFlag, rawFlag)
+
+	if len(posArgs) == 0 {
+		_, _ = fmt.Fprintln(a.Stderr, "error: show requires at least one skill name")
+		return ExitUsage
+	}
+
+	var items []catalog.Item
+	var notFounds []string
+
+	for _, name := range posArgs {
+		item, err := a.Store.Get(name)
+		if err != nil && isGitHubSkillSpec(name) {
+			if target, ok := catalog.ParseGitHubTarget(name); ok {
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				ghItem, ghErr := catalog.FetchGitHubSkill(ctx, target, a.getHTTPClient())
+				cancel()
+				if ghErr == nil && ghItem != nil {
+					item = ghItem
+					err = nil
+				} else if ghErr != nil {
+					if code := MapErrorToExitCode(ghErr); code == ExitNetwork || code == ExitIntegrity {
+						_, _ = fmt.Fprintf(a.Stderr, "error: fetching skill from github %q: %v\n", name, ghErr)
+						return code
+					}
+				}
+			}
+		}
+		if err != nil {
+			notFounds = append(notFounds, name)
+			continue
+		}
+		items = append(items, *item)
+	}
+
+	if len(notFounds) > 0 {
+		for _, name := range notFounds {
+			a.printNotFoundWithSuggestions("show", name)
+		}
+		return ExitNotFound
+	}
+
+	return a.renderShowItems(items, mode)
+}
+
+func (a *App) renderShowItems(items []catalog.Item, mode OutputMode) int {
+	type ShowDetail struct {
+		Name         string            `json:"name"`
+		Title        string            `json:"title,omitempty"`
+		Category     string            `json:"category"`
+		Version      string            `json:"version,omitempty"`
+		Description  string            `json:"description"`
+		Author       string            `json:"author,omitempty"`
+		License      string            `json:"license,omitempty"`
+		Status       string            `json:"status"`
+		Tags         []string          `json:"tags,omitempty"`
+		AllowedTools string            `json:"allowed_tools,omitempty"`
+		References   []string          `json:"references,omitempty"`
+		Scripts      []string          `json:"scripts,omitempty"`
+		Digest       string            `json:"digest,omitempty"`
+		Sha256       string            `json:"sha256,omitempty"`
+		URL          string            `json:"url,omitempty"`
+		Source       string            `json:"source,omitempty"`
+		Metadata     map[string]string `json:"metadata,omitempty"`
+	}
+
+	var details []ShowDetail
+	st := a.loadState()
+	for _, it := range items {
+		a.ensureArchiveUnpacked(&it)
+		status := a.getSkillStatusWithState(&it, st)
+		refs := a.listReferences(it)
+		scripts := a.listScripts(it)
+
+		ver := it.Version
+		if ver == "" && it.Metadata != nil {
+			ver = it.Metadata["version"]
+		}
+
+		author := it.Author
+		if author == "" && it.Metadata != nil {
+			author = it.Metadata["author"]
+		}
+
+		details = append(details, ShowDetail{
+			Name:         it.Name,
+			Title:        it.Title,
+			Category:     it.Category,
+			Version:      ver,
+			Description:  it.Description,
+			Author:       author,
+			License:      it.License,
+			Status:       status,
+			Tags:         it.Tags,
+			AllowedTools: it.AllowedTools,
+			References:   refs,
+			Scripts:      scripts,
+			Digest:       it.Digest,
+			Sha256:       it.Sha256,
+			URL:          it.URL,
+			Source:       it.Source,
+			Metadata:     it.Metadata,
+		})
+	}
+
+	switch mode {
+	case OutputModeJSON:
+		enc := json.NewEncoder(a.Stdout)
+		enc.SetIndent("", "  ")
+		if len(details) == 1 {
+			_ = enc.Encode(details[0])
+		} else {
+			_ = enc.Encode(details)
+		}
+		return ExitSuccess
+	case OutputModeRaw:
+		for _, d := range details {
+			tagsStr := strings.Join(d.Tags, ",")
+			refsStr := strings.Join(d.References, ",")
+			scriptsStr := strings.Join(d.Scripts, ",")
+			_, _ = fmt.Fprintf(a.Stdout, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", d.Name, d.Category, d.Version, d.Status, tagsStr, sanitizeTSVField(d.AllowedTools), refsStr, scriptsStr, sanitizeTSVField(d.Description))
+		}
+		return ExitSuccess
+	default: // OutputModeHuman
+		for i, d := range details {
+			if i > 0 {
+				_, _ = fmt.Fprintln(a.Stdout)
+				_, _ = fmt.Fprintln(a.Stdout, "--------------------------------------------------------------------------------")
+				_, _ = fmt.Fprintln(a.Stdout)
+			}
+			_, _ = fmt.Fprintf(a.Stdout, "SKILL: %s\n", d.Name)
+			if d.Title != "" && d.Title != d.Name {
+				_, _ = fmt.Fprintf(a.Stdout, "Title:        %s\n", d.Title)
+			}
+			_, _ = fmt.Fprintf(a.Stdout, "Category:     %s\n", d.Category)
+			if d.Version != "" {
+				_, _ = fmt.Fprintf(a.Stdout, "Version:      %s\n", d.Version)
+			}
+			_, _ = fmt.Fprintf(a.Stdout, "Status:       [%s]\n", d.Status)
+			if d.Author != "" {
+				_, _ = fmt.Fprintf(a.Stdout, "Author:       %s\n", d.Author)
+			}
+			if d.License != "" {
+				_, _ = fmt.Fprintf(a.Stdout, "License:      %s\n", d.License)
+			}
+			if len(d.Tags) > 0 {
+				_, _ = fmt.Fprintf(a.Stdout, "Tags:         %s\n", strings.Join(d.Tags, ", "))
+			}
+			if d.AllowedTools != "" {
+				_, _ = fmt.Fprintf(a.Stdout, "Tools:        %s\n", d.AllowedTools)
+			}
+			if len(d.References) > 0 {
+				_, _ = fmt.Fprintf(a.Stdout, "References:   %s\n", strings.Join(d.References, ", "))
+			}
+			if len(d.Scripts) > 0 {
+				_, _ = fmt.Fprintf(a.Stdout, "Scripts:      %s\n", strings.Join(d.Scripts, ", "))
+			}
+			if d.URL != "" {
+				_, _ = fmt.Fprintf(a.Stdout, "URL:          %s\n", d.URL)
+			}
+			if d.Digest != "" {
+				_, _ = fmt.Fprintf(a.Stdout, "Digest:       %s\n", d.Digest)
+			}
+			_, _ = fmt.Fprintf(a.Stdout, "Description:\n  %s\n", d.Description)
+		}
+		return ExitSuccess
+	}
+}

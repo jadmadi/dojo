@@ -1,0 +1,22 @@
+{
+  "$schema": "https://schemas.agentskills.io/discovery/0.2.0/schema.json",
+  "skills": [
+    {
+      "name": "dojo",
+      "type": "skill-md",
+      "category": "agents",
+      "tags": ["dojo", "skills", "mcp", "sila", "sync", "toc", "doctor", "gateway"],
+      "description": "The Agent Skills Training Ground, Native MCP Gateway, and Multi-Harness Continuity Engine. Discover skills with hybrid search, inspect section TOCs, JIT-load individual #sections, resolve skill dependency graphs, sync skills across Claude/Cursor/Windsurf/Gemini/OpenCode/Sila, and audit skills with dojo doctor.",
+      "url": "https://raw.githubusercontent.com/jadmadi/dojo/main/skills/dojo/SKILL.md",
+      "digest": "sha256:bebf45decb2553199802f5a3cc21e9836dbc4d1b989fabab44940636fe694722"
+    },
+    {
+      "name": "kungfu",
+      "type": "skill-md",
+      "category": "agents",
+      "description": "\"I know Kung Fu!\": Activate this skill to acquire knowledge about anything immediately. It teaches how to discover skills with keywords, JIT load skills into context, load reference guides and assets, execute companion scripts, and use the KungFu pair-programming shortcut dialect. When encountering unknown commands, niche domains, or ::notation, activate kungfu.",
+      "url": "https://raw.githubusercontent.com/jadmadi/dojo/main/skills/kungfu/SKILL.md",
+      "digest": "sha256:3f2c2f7ab9bef2190a25e4d58d78b518e477a94027367bb57d5064858ad3ca5f"
+    }
+  ]
+}
