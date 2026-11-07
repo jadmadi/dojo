@@ -161,9 +161,9 @@ go run . doctor --skills --security
 
 ## Why the name Dojo?
 
-The project originated as a fork of `kungfu` (功夫), paying homage to the iconic *Matrix* moment: *"I know Kung Fu."* While Kung Fu represents individual skill acquired through time and effort, a **Dojo** (道場, literally *"place of the Way"*) shifts the perspective from a single technique to the **training ground itself**. 
+The project originated as a fork of `kungfu` (功夫), paying homage to the *Matrix* line: *"I know Kung Fu."* While Kung Fu represents individual skill acquired through practice, a **Dojo** (道場, literally *"place of the Way"*) is the **training ground itself**.
 
-Transitioning from Chinese martial arts terminology (*Kung Fu*) to Japanese (*Dojo*) carries the philosophy forward: a dojo is where disciplines are practiced, rules are refined, and mastery is tested. In the era of autonomous AI coding agents, skills should not live in isolated silos or single-vendor setups. `dojo` provides the shared training ground and continuity engine where agents across Claude, Cursor, Windsurf, Gemini, and Sila learn, verify, and master skills together.
+Transitioning from Chinese martial arts terminology (*Kung Fu*) to Japanese (*Dojo*) reflects this architectural shift: rather than only loading a single skill on demand, `dojo` provides the local tooling to author and lint skills (`dojo init`, `dojo doctor`), verify token budgets, and synchronize installed skills across multiple agent directories (`dojo sync` / `dojo sila` for Claude, Cursor, Windsurf, Gemini, OpenCode, and Sila).
 
 ## License and contributing
 
