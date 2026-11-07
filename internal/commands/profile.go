@@ -53,6 +53,14 @@ func (a *App) RunProfile(args []string) int {
 	}
 }
 
+func resolveProfileScopeAndDir(globalFlag bool) (string, string) {
+	scope, rootDir := resolveScopeAndDir(globalFlag)
+	if globalFlag || rootDir == "" {
+		rootDir, _ = os.UserHomeDir()
+	}
+	return scope, rootDir
+}
+
 func (a *App) runProfileExport(args []string) int {
 	fs := flag.NewFlagSet("profile export", flag.ContinueOnError)
 	fs.SetOutput(a.Stderr)
@@ -75,7 +83,7 @@ func (a *App) runProfileExport(args []string) int {
 		outFlag = posArgs[0]
 	}
 
-	scope, rootDir := resolveScopeAndDir(globalFlag)
+	scope, rootDir := resolveProfileScopeAndDir(globalFlag)
 	_ = harness.ReconcileHarnesses(rootDir)
 
 	st := a.loadState()
@@ -180,7 +188,7 @@ func (a *App) runProfileApply(args []string) int {
 }
 
 func (a *App) applySkillsManifest(manifest *profile.SkillsManifest, globalFlag bool) ([]string, []harness.ProjectionResult, error) {
-	_, rootDir := resolveScopeAndDir(globalFlag)
+	_, rootDir := resolveProfileScopeAndDir(globalFlag)
 
 	// 1. Register any custom catalogs declared in the manifest
 	for catName, catSource := range manifest.Catalogs {
@@ -233,6 +241,21 @@ func (a *App) applySkillsManifest(manifest *profile.SkillsManifest, globalFlag b
 		subApp.Stderr = &lErr
 		if code := subApp.RunLearn(learnArgs); code == ExitSuccess {
 			installed = append(installed, entry.Name)
+		} else if manifest.SourceRepo != "" && entry.Repo == "" {
+			// Fallback: skill may be hosted directly inside the profile repository itself (e.g. jadmadi/agy-vm/skills/<name>)
+			repoSpec := fmt.Sprintf("github:%s/skills/%s", manifest.SourceRepo, entry.Name)
+			if manifest.SourceRef != "" && manifest.SourceRef != "main" {
+				repoSpec = fmt.Sprintf("%s@%s", repoSpec, manifest.SourceRef)
+			}
+			fallbackArgs := []string{repoSpec, "--with-deps"}
+			if globalFlag {
+				fallbackArgs = append(fallbackArgs, "-g")
+			}
+			lOut.Reset()
+			lErr.Reset()
+			if fCode := subApp.RunLearn(fallbackArgs); fCode == ExitSuccess {
+				installed = append(installed, entry.Name)
+			}
 		}
 	}
 
@@ -270,7 +293,7 @@ func (a *App) runProfileSync(args []string) int {
 		return ExitUsage
 	}
 
-	scope, rootDir := resolveScopeAndDir(globalFlag)
+	scope, rootDir := resolveProfileScopeAndDir(globalFlag)
 	if dirFlag != "" {
 		rootDir = dirFlag
 	}

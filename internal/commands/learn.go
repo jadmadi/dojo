@@ -107,6 +107,9 @@ func (a *App) RunLearn(args []string) int {
 				_, _ = fmt.Fprintf(a.Stderr, "error: fetching skill from github %q: %v\n", spec, err)
 				return MapErrorToExitCode(err)
 			}
+			if cat, ok := a.Store.(*catalog.Catalog); ok {
+				cat.AddItem(*item)
+			}
 			itemsToInstall = append(itemsToInstall, *item)
 			continue
 		}

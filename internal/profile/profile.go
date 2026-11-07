@@ -47,12 +47,14 @@ type SkillEntry struct {
 // SkillsManifest represents a portable, Git-friendly skills.json manifest
 // for traveling across local machines, workspaces, and cloud VMs (e.g. agy-vm).
 type SkillsManifest struct {
-	Schema    string            `json:"$schema,omitempty"`
-	Version   string            `json:"version"`
-	Harnesses []string          `json:"harnesses,omitempty"`
-	Targets   []string          `json:"targets,omitempty"`
-	Catalogs  map[string]string `json:"catalogs,omitempty"`
-	Skills    []SkillEntry      `json:"skills"`
+	Schema     string            `json:"$schema,omitempty"`
+	Version    string            `json:"version"`
+	Harnesses  []string          `json:"harnesses,omitempty"`
+	Targets    []string          `json:"targets,omitempty"`
+	Catalogs   map[string]string `json:"catalogs,omitempty"`
+	Skills     []SkillEntry      `json:"skills"`
+	SourceRepo string            `json:"-"`
+	SourceRef  string            `json:"-"`
 }
 
 // EffectiveHarnesses returns Harnesses if non-empty, or falls back to Targets.
@@ -163,6 +165,7 @@ func SaveManifest(path string, m *SkillsManifest) error {
 }
 
 // LoadManifest loads a SkillsManifest from a local file path, directory, HTTP URL, or GitHub repository ref.
+// Supports both public and private GitHub repositories (via GITHUB_TOKEN, GH_TOKEN, or `gh api`).
 func LoadManifest(ctx context.Context, pathOrRef string, client *http.Client) (*SkillsManifest, error) {
 	clean := strings.TrimSpace(pathOrRef)
 	if clean == "" {
@@ -186,54 +189,65 @@ func LoadManifest(ctx context.Context, pathOrRef string, client *http.Client) (*
 		return &m, nil
 	}
 
-	// 2. Check HTTP/HTTPS URL or GitHub owner/repo shorthand
-	remoteURL := ""
+	// 2. Check GitHub repository target (github:owner/repo, owner/repo, or raw.githubusercontent.com)
+	if !strings.HasPrefix(clean, "http://") && !strings.HasPrefix(clean, "https://") || strings.Contains(clean, "github.com/") || strings.Contains(clean, "raw.githubusercontent.com/") {
+		if target, ok := catalog.ParseGitHubTarget(strings.TrimPrefix(clean, "github:")); ok {
+			ref := target.Ref
+			if ref == "" {
+				ref = "main"
+			}
+			sub := strings.Trim(target.Subpath, "/")
+			if sub == "" {
+				sub = DefaultManifestFilename
+			} else if !strings.HasSuffix(sub, ".json") {
+				sub = sub + "/" + DefaultManifestFilename
+			}
+			data, rawURL, err := catalog.FetchGitHubRaw(ctx, target.Owner, target.Repo, ref, sub, 4<<20, client)
+			if err != nil {
+				return nil, err
+			}
+			var m SkillsManifest
+			if err := json.Unmarshal(data, &m); err != nil {
+				return nil, fmt.Errorf("invalid remote skills.json from %s: %w", rawURL, err)
+			}
+			m.SourceRepo = target.RepoString()
+			m.SourceRef = ref
+			return &m, nil
+		}
+	}
+
+	// 3. Generic HTTP/HTTPS URL
 	if strings.HasPrefix(clean, "http://") || strings.HasPrefix(clean, "https://") {
-		remoteURL = clean
+		remoteURL := clean
 		if !strings.HasSuffix(remoteURL, ".json") {
 			remoteURL = strings.TrimRight(remoteURL, "/") + "/" + DefaultManifestFilename
 		}
-	} else if target, ok := catalog.ParseGitHubTarget(strings.TrimPrefix(clean, "github:")); ok {
-		ref := target.Ref
-		if ref == "" {
-			ref = "main"
+		if client == nil {
+			client = http.DefaultClient
 		}
-		sub := strings.Trim(target.Subpath, "/")
-		if sub == "" {
-			sub = DefaultManifestFilename
-		} else if !strings.HasSuffix(sub, ".json") {
-			sub = sub + "/" + DefaultManifestFilename
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, remoteURL, nil)
+		if err != nil {
+			return nil, err
 		}
-		remoteURL = fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/%s/%s", target.Owner, target.Repo, ref, sub)
+		req.Header.Set("User-Agent", version.UserAgent())
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = resp.Body.Close() }()
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("failed to fetch %s: HTTP %d", remoteURL, resp.StatusCode)
+		}
+		data, err := catalog.ReadBounded(resp.Body, 4<<20)
+		if err != nil {
+			return nil, err
+		}
+		var m SkillsManifest
+		if err := json.Unmarshal(data, &m); err != nil {
+			return nil, fmt.Errorf("invalid remote skills.json from %s: %w", remoteURL, err)
+		}
+		return &m, nil
 	}
 
-	if remoteURL == "" {
-		return nil, fmt.Errorf("skills manifest %q not found on disk and is not a valid URL or GitHub repository", pathOrRef)
-	}
-
-	if client == nil {
-		client = http.DefaultClient
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, remoteURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", version.UserAgent())
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to fetch %s: HTTP %d", remoteURL, resp.StatusCode)
-	}
-	data, err := catalog.ReadBounded(resp.Body, 4<<20)
-	if err != nil {
-		return nil, err
-	}
-	var m SkillsManifest
-	if err := json.Unmarshal(data, &m); err != nil {
-		return nil, fmt.Errorf("invalid remote skills.json from %s: %w", remoteURL, err)
-	}
-	return &m, nil
+	return nil, fmt.Errorf("skills manifest %q not found on disk and is not a valid URL or GitHub repository", pathOrRef)
 }

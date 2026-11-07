@@ -308,21 +308,38 @@ func projectSkillDirectory(skillName, harnessName, sourceDir, destDir string) Pr
 	// Remove existing symlink or directory at destDir
 	_ = os.RemoveAll(destDir)
 
-	// Try relative symlink first for zero-duplication sync
-	relTarget, relErr := filepath.Rel(parentDir, sourceDir)
-	if relErr == nil {
-		if err := os.Symlink(relTarget, destDir); err == nil {
-			return ProjectionResult{
-				Skill:   skillName,
-				Harness: harnessName,
-				Path:    destDir,
-				Method:  "symlink",
-				Status:  "synced",
+	// Determine if parentDir is inside a symlinked harness root (e.g. ~/.gemini -> /shared/user/.gemini)
+	// or a standalone Git repository (e.g. ~/.gemini/.git). In either case, copy real files so
+	// symlinks never dangle across mount boundaries or point outside the harness Git repo.
+	preferCopy := false
+	if realParent, pErr := filepath.EvalSymlinks(parentDir); pErr == nil && filepath.Clean(realParent) != filepath.Clean(parentDir) {
+		preferCopy = true
+	}
+	if _, gitErr := os.Stat(filepath.Join(filepath.Dir(parentDir), ".git")); gitErr == nil {
+		preferCopy = true
+	}
+
+	if !preferCopy {
+		// Try relative symlink first for zero-duplication sync
+		relTarget, relErr := filepath.Rel(parentDir, sourceDir)
+		if relErr == nil {
+			if err := os.Symlink(relTarget, destDir); err == nil {
+				// Verify symlink resolves to SKILL.md (never leave a dangling symlink)
+				if _, statErr := os.Stat(filepath.Join(destDir, "SKILL.md")); statErr == nil {
+					return ProjectionResult{
+						Skill:   skillName,
+						Harness: harnessName,
+						Path:    destDir,
+						Method:  "symlink",
+						Status:  "synced",
+					}
+				}
+				_ = os.RemoveAll(destDir)
 			}
 		}
 	}
 
-	// Fallback to recursive copy (e.g. across filesystems or Windows without symlink privs)
+	// Fallback to recursive copy (e.g. across filesystems, symlinked dirs, or Windows without symlink privs)
 	if err := copyDirRecursive(sourceDir, destDir); err != nil {
 		return ProjectionResult{
 			Skill:   skillName,

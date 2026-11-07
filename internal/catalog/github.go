@@ -23,6 +23,7 @@ import (
 	"maps"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -57,6 +58,7 @@ func ParseGitHubTarget(input string) (*GitHubTarget, bool) {
 	}
 
 	// Remove protocols
+	raw = strings.TrimPrefix(raw, "github:")
 	raw = strings.TrimPrefix(raw, "https://")
 	raw = strings.TrimPrefix(raw, "http://")
 	raw = strings.TrimPrefix(raw, "git@github.com:")
@@ -143,7 +145,117 @@ func ParseGitHubTarget(input string) (*GitHubTarget, bool) {
 	}, true
 }
 
-// FetchGitHubSkill attempts to fetch and parse SKILL.md from a GitHub repository via raw HTTP.
+// FetchGitHubRaw fetches a raw file from a public or private GitHub repository.
+// It tries in order:
+//  1. Unauthenticated raw.githubusercontent.com (fast path for public repos)
+//  2. Authenticated api.github.com/repos/{owner}/{repo}/contents/{path} using GITHUB_TOKEN or GH_TOKEN
+//  3. Authenticated `gh api` CLI fallback (supports private repos via ~/.config/gh / system keychain even when GITHUB_TOKEN is unset or stale)
+func FetchGitHubRaw(ctx context.Context, owner, repo, ref, relPath string, maxBytes int64, client *http.Client) ([]byte, string, error) {
+	if client == nil {
+		client = &http.Client{Timeout: 15 * time.Second}
+	}
+	if maxBytes <= 0 {
+		maxBytes = 4 << 20
+	}
+	cleanRel := strings.TrimLeft(relPath, "/")
+	if ref == "" {
+		ref = "main"
+	}
+	rawURL := fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/%s/%s", owner, repo, ref, cleanRel)
+
+	// 1. Fast path: unauthenticated raw.githubusercontent.com for public repos
+	var lastStatus int
+	var lastNetErr error
+	if req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil); err == nil {
+		req.Header.Set("User-Agent", version.UserAgent())
+		if resp, doErr := client.Do(req); doErr == nil {
+			lastStatus = resp.StatusCode
+			if resp.StatusCode == http.StatusOK {
+				data, rErr := ReadBounded(resp.Body, maxBytes)
+				_ = resp.Body.Close()
+				if rErr == nil && len(data) > 0 {
+					return data, rawURL, nil
+				}
+			} else {
+				_ = resp.Body.Close()
+			}
+		} else {
+			lastNetErr = doErr
+		}
+	}
+
+	// 2. Authenticated GitHub Contents API via GITHUB_TOKEN or GH_TOKEN
+	envToken := strings.TrimSpace(os.Getenv("GITHUB_TOKEN"))
+	if envToken == "" {
+		envToken = strings.TrimSpace(os.Getenv("GH_TOKEN"))
+	}
+	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/contents/%s?ref=%s", owner, repo, cleanRel, ref)
+	if envToken != "" {
+		if req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil); err == nil {
+			req.Header.Set("User-Agent", version.UserAgent())
+			req.Header.Set("Accept", "application/vnd.github.raw+json")
+			req.Header.Set("Authorization", "Bearer "+envToken)
+			if resp, doErr := client.Do(req); doErr == nil {
+				if resp.StatusCode == http.StatusOK {
+					data, rErr := ReadBounded(resp.Body, maxBytes)
+					_ = resp.Body.Close()
+					if rErr == nil && len(data) > 0 {
+						return data, rawURL, nil
+					}
+				} else {
+					lastStatus = resp.StatusCode
+					_ = resp.Body.Close()
+				}
+			}
+		}
+	}
+
+	// 3. Fallback to `gh api` CLI (works with private repos when user is logged into gh CLI)
+	ghBin, ghErr := exec.LookPath("gh")
+	if ghErr != nil {
+		if _, statErr := os.Stat("/opt/antigravity/bin/gh"); statErr == nil {
+			ghBin = "/opt/antigravity/bin/gh"
+			ghErr = nil
+		}
+	}
+	if ghErr == nil && ghBin != "" {
+		apiEndpoint := fmt.Sprintf("repos/%s/%s/contents/%s?ref=%s", owner, repo, cleanRel, ref)
+		runGH := func(stripEnvToken bool) ([]byte, error) {
+			cmd := exec.CommandContext(ctx, ghBin, "api", apiEndpoint, "-H", "Accept: application/vnd.github.raw+json")
+			if stripEnvToken {
+				var filtered []string
+				for _, kv := range os.Environ() {
+					if strings.HasPrefix(kv, "GITHUB_TOKEN=") || strings.HasPrefix(kv, "GH_TOKEN=") {
+						continue
+					}
+					filtered = append(filtered, kv)
+				}
+				cmd.Env = filtered
+			}
+			return cmd.Output()
+		}
+
+		// If envToken already failed in step 2, strip it first so gh uses stored credentials
+		if envToken != "" {
+			if out, err := runGH(true); err == nil && len(out) > 0 {
+				return out, rawURL, nil
+			}
+		}
+		if out, err := runGH(false); err == nil && len(out) > 0 {
+			return out, rawURL, nil
+		}
+	}
+
+	if lastStatus != 0 {
+		return nil, rawURL, fmt.Errorf("failed to fetch %s: HTTP %d", rawURL, lastStatus)
+	}
+	if lastNetErr != nil {
+		return nil, rawURL, lastNetErr
+	}
+	return nil, rawURL, fmt.Errorf("failed to fetch %s", rawURL)
+}
+
+// FetchGitHubSkill attempts to fetch and parse SKILL.md from a GitHub repository via raw HTTP or authenticated GitHub API.
 func FetchGitHubSkill(ctx context.Context, target *GitHubTarget, client *http.Client) (*Item, error) {
 	if client == nil {
 		client = &http.Client{Timeout: 15 * time.Second}
@@ -186,28 +298,17 @@ func probeGitHubRef(ctx context.Context, target *GitHubTarget, ref string, clien
 	var lastNetErr error
 	gotHTTPResponse := false
 	for _, relPath := range candidatePaths {
-		rawURL := fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/%s/%s", target.Owner, target.Repo, ref, relPath)
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+		bodyBytes, rawURL, err := FetchGitHubRaw(ctx, target.Owner, target.Repo, ref, relPath, 2<<20, client)
 		if err != nil {
-			continue
-		}
-		req.Header.Set("User-Agent", version.UserAgent())
-
-		resp, err := client.Do(req)
-		if err != nil {
-			lastNetErr = err
+			if strings.Contains(err.Error(), "HTTP ") {
+				gotHTTPResponse = true
+			} else {
+				lastNetErr = err
+			}
 			continue
 		}
 		gotHTTPResponse = true
-
-		if resp.StatusCode != http.StatusOK {
-			_ = resp.Body.Close()
-			continue
-		}
-
-		bodyBytes, err := ReadBounded(resp.Body, 2<<20) // 2MB limit
-		_ = resp.Body.Close()
-		if err != nil || len(bodyBytes) == 0 {
+		if len(bodyBytes) == 0 {
 			continue
 		}
 

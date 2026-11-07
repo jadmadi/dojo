@@ -110,9 +110,10 @@ dojo init --workspace
 # Export your current workspace or global (-g) skills into skills.json
 dojo profile export
 
-# Apply a local skills.json, HTTP URL, or GitHub repository manifest on a fresh machine or cloud VM
+# Apply a local skills.json, HTTP URL, or public/private GitHub repository manifest
+# (Private repos authenticate via GITHUB_TOKEN, GH_TOKEN, or logged-in `gh` CLI)
 dojo profile apply
-dojo profile apply github:jadmadi/agy-vm
+dojo profile apply github:jadmadi/agy-vm -g
 
 # Reconcile harness edits, apply skills.json, update skills.json, and optionally git commit & push
 dojo profile sync --push
