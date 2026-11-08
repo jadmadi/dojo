@@ -1,0 +1,103 @@
+{
+  "$schema": "https://jadmadi.net/schemas/project.schema.json",
+  // Timestamp of the last metadata revision (Format: YY-MM-DD-HH-MM)
+  "lastEdit": "26-11-08-20-18",
+
+  // Unique identifier matching the project URL slug on jadmadi.net
+  "id": "dojo",
+
+  // Human-readable title
+  "title": "Dojo",
+
+  // Single-sentence punchy tagline
+  "tagline": "Section-level Agent Skills CLI and MCP server that streams only the context an agent needs",
+
+  // Semantic version
+  "version": "1.3.0",
+
+  // 2-3 sentence executive summary explaining what it does, why it exists, and zero-bullshit proof
+  "summary": "A static Go CLI and stdio MCP server for discovering, streaming, auditing, and synchronizing Agent Skills. Agents inspect a skill's table of contents, load one section instead of the whole file, resolve dependencies in topological order, and project skills across six coding harnesses. Catalogs are verified with SHA-256 digests before anything is installed.",
+
+  // Status on catalog: "featured" | "active" | "in-progress" | "upstream-merged" | "beta" | "archived"
+  "status": "active",
+
+  // Release or active year
+  "year": "2026",
+
+  // Technical stack breakdown
+  "tech_stack": {
+    "languages": ["Go"],
+    "frameworks": ["Go standard library", "yaml.v3"],
+    "architecture": "Single static binary, stdio JSON-RPC 2.0 MCP server, BM25 plus reciprocal rank fusion search, digest-verified catalog cache",
+    "license": "Apache-2.0",
+    "license_type": "permissive"
+  },
+
+  // One-line metrics/capabilities pill shown on cards and tables
+  "stats": "8 MCP Tools · 6 Harnesses · Section-Level Loading · Apache-2.0",
+
+  // Highlight badges displayed on project cards
+  "badges": [
+    "Go CLI",
+    "MCP Server",
+    "Agent Skills",
+    "Section Paging",
+    "Apache-2.0"
+  ],
+
+  // Primary 1-line installation snippet (shown in copyable terminal widget)
+  "install_command": "curl -fsSL https://raw.githubusercontent.com/jadmadi/dojo/main/scripts/install.sh | sh",
+
+  // Multi-platform install commands (optional)
+  "install_commands": {
+    "linux_macos": "curl -fsSL https://raw.githubusercontent.com/jadmadi/dojo/main/scripts/install.sh | sh",
+    "windows": "go install github.com/jadmadi/dojo/cmd/dojo@latest"
+  },
+
+  // Authoritative external links
+  "links": {
+    "github": "https://github.com/jadmadi/dojo",
+    "website": "https://jadmadi.net/project/dojo",
+    "docs": "https://github.com/jadmadi/dojo/blob/main/README.md",
+    "package": null
+  },
+
+  // Problem statement: What pain point does this solve?
+  "problem_statement": "Agent Skills load as whole files, so an agent that needs one procedure pays for the entire document in context. The same skills also scatter across per-harness folders and separate machines, where they drift and are maintained by hand.",
+
+  // Solution: How does this solve it?
+  "solution": "Dojo indexes each skill's headings, streams a single section on demand, resolves dependencies in order, and bi-directionally reconciles the canonical .agents/skills store with every active harness. A linked personal registry carries the same skills between a laptop and a cloud VM.",
+
+  // List of major capabilities and distinct features
+  "features": [
+    "Section-level paging: `dojo toc` lists headings with byte sizes and `dojo load <skill>#<section>` streams one section",
+    "Hybrid BM25 and reciprocal rank fusion search across federated catalogs",
+    "Dependency graph with topological resolution and cycle detection (`--with-deps`)",
+    "Bi-directional sync across Antigravity, Claude Code, Cursor, Windsurf, OpenCode, and Sila",
+    "Personal Skills Registry that synchronizes skills.json between a laptop and a cloud VM",
+    "Cloudflare Agent Skills Discovery RFC v0.2.0 support with SHA-256 digest verification",
+    "Native stdio MCP server exposing 8 tools: find, toc, load, run, learn, doctor, sync, and profile",
+    "Secret and prompt-injection scanning before a profile push",
+    "Prebuilt binaries for Linux, macOS, and Windows on amd64 and arm64"
+  ],
+
+  // Frequently Asked Questions
+  "faq": [
+    {
+      "question": "Do I need to rewrite my existing skills?",
+      "answer": "No. Dojo reads the standard SKILL.md format with YAML frontmatter, and `dojo sync` imports skills it finds in supported harness folders before projecting them back out."
+    },
+    {
+      "question": "Which coding agents does Dojo support?",
+      "answer": "Antigravity (Desktop and CLI), Claude Code, Cursor, Windsurf, OpenCode, and Sila, with .agents/skills as the canonical store."
+    },
+    {
+      "question": "What does the MCP server expose?",
+      "answer": "Eight tools: dojo_find, dojo_toc, dojo_load, dojo_run, dojo_learn, dojo_doctor, dojo_sync, and dojo_profile, all over stdio JSON-RPC 2.0."
+    },
+    {
+      "question": "Is Dojo related to KungFu?",
+      "answer": "Dojo began as a fork of the Apache-2.0 KungFu CLI by Daniela Petruzalek and is now independently maintained. Upstream credit is recorded in CREDITS.md."
+    }
+  ]
+}
