@@ -10,13 +10,15 @@
 
 ## Installation and quickstart
 
-Install `dojo` via the one-line installer (Linux / macOS / `agy-vm`) or `go install` (Linux, macOS, Windows), then initialize your workspace or stream your first skill section:
+Install `dojo` via the one-line installer (Linux / macOS / `agy-vm`), `go install` (Linux, macOS, Windows), or the `skills` CLI, then initialize your workspace or stream your first skill section:
 
 ```bash
 # Install prebuilt binary (Linux / macOS / agy-vm) or build with Go
 curl -fsSL https://raw.githubusercontent.com/jadmadi/dojo/main/scripts/install.sh | sh
 # Or via Go toolchain (Linux / macOS / Windows):
 go install github.com/jadmadi/dojo/cmd/dojo@latest
+# Or install the Dojo skill with the skills CLI (any supported agent):
+npx skills add jadmadi/dojo
 
 # 1. Initialize workspace (.agents/skills/, skills.json, and active harness projections)
 dojo init --workspace
