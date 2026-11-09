@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-10
+
+### Changed
+- **Command Structure Refactor**: Split the largest command handlers into named helpers with unchanged behavior: `update`, `profile push`, `learn`, `load`, `status`, and the top-level `Run` dispatcher. This lowers cognitive complexity without changing flags, output, or exit codes.
+- **Reader and Reconciler Refactor**: Split `runner.readBytesInternal` into path validation, local lookup, archive download, and remote lookup steps. Split `harness.ReconcileHarnesses` into one helper per harness family.
+- **Search Deduplication**: `searchBM25` and `searchTFIDF` now share candidate scoring, mask combination, and ranking.
+- **State History Consolidation**: `RecordRun`, `RecordLearn`, and `RecordLoadDetailed` share one locked history upsert.
+
+### Added
+- **Catalog Metadata (`project.jsonc`)**: Authoritative project metadata for the jadmadi.net project catalog, synchronized with the site on each release.
+- **README Restructure**: Answer-first README that states current capabilities, documents the `skills` CLI install path, and drops the unmeasured token-savings percentage.
+
+### Fixed
+- **Release Workflow Toolchain**: The release workflow now uses Go 1.26, matching `go.mod`.
+
 ## [1.3.0] - 2026-11-07
 
 ### Added

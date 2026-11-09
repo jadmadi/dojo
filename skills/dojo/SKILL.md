@@ -13,7 +13,7 @@ metadata:
   category: agents
   tags: "dojo, gateway, mcp, multi-harness, antigravity, sila, profile, agy-vm, agent-skills, discovery, search, catalog, cli"
   author: Jad Madi (github.com/jadmadi)
-  version: "1.3.0"
+  version: "1.4.0"
   catalog: https://github.com/jadmadi/dojo
 ---
 
