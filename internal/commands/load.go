@@ -96,37 +96,107 @@ func paginateContent(content string, pageSize int) []string {
 	return pages
 }
 
+// loadOptions holds the parsed flags for `dojo load`.
+type loadOptions struct {
+	json     bool
+	raw      bool
+	local    bool
+	update   bool
+	force    bool
+	full     bool
+	withDeps bool
+	page     int
+	pageSize int
+	section  string
+}
+
+// loadResultItem is the JSON payload for one load.
+type loadResultItem struct {
+	Name        string `json:"name"`
+	Subpath     string `json:"subpath,omitempty"`
+	Section     string `json:"section,omitempty"`
+	Category    string `json:"category"`
+	Version     string `json:"version,omitempty"`
+	Description string `json:"description"`
+	Page        int    `json:"page,omitempty"`
+	TotalPages  int    `json:"total_pages,omitempty"`
+	Content     string `json:"content"`
+	Digest      string `json:"digest,omitempty"`
+	Source      string `json:"source,omitempty"`
+}
+
 func (a *App) RunLoad(args []string) int {
-	fs := flag.NewFlagSet("load", flag.ContinueOnError)
-	fs.SetOutput(a.Stderr)
-	var jsonFlag, rawFlag bool
-	var localFlag, updateFlag, forceFlag, fullFlag, withDepsFlag bool
-	var pageFlag, pageSizeFlag int
-	var sectionFlag string
+	opts, posArgs, ok := a.parseLoadArgs(args)
+	if !ok {
+		return ExitUsage
+	}
+	posArgs = a.resolveSkillSpecs(posArgs)
+	mode := a.resolveMode(opts.json, opts.raw)
 
-	fs.BoolVar(&jsonFlag, "json", false, "Output loaded content as JSON")
-	fs.BoolVar(&rawFlag, "raw", false, "Output raw verbatim markdown content without extra formatting")
-	fs.BoolVar(&localFlag, "local", false, "Use locally cached or installed copy without checking remote upstream")
-	fs.BoolVar(&updateFlag, "update", false, "Check remote upstream and update cached copy before loading")
-	fs.BoolVar(&updateFlag, "u", false, "Check remote upstream and update cached copy before loading (shorthand)")
-	fs.BoolVar(&forceFlag, "force", false, "Force loading/updating even if digest verification fails")
-	fs.BoolVar(&forceFlag, "f", false, "Force loading/updating even if digest verification fails (shorthand)")
-	fs.IntVar(&pageFlag, "page", 1, "Page number to display (1-based)")
-	fs.IntVar(&pageFlag, "p", 1, "Page number to display (1-based, shorthand)")
-	fs.IntVar(&pageSizeFlag, "page-size", DefaultPageSize, "Maximum page size in bytes")
-	fs.BoolVar(&fullFlag, "full", false, "Output complete unpaginated content")
-	fs.StringVar(&sectionFlag, "section", "", "Extract a specific markdown section by heading slug or title")
-	fs.StringVar(&sectionFlag, "s", "", "Extract a specific markdown section (shorthand)")
-	fs.BoolVar(&withDepsFlag, "with-deps", false, "Load skill along with all transitive dependencies in topological order")
+	if code := a.validateLoadRequest(posArgs, opts); code != ExitSuccess {
+		return code
+	}
 
-	posArgs, err := parseFlagsWithArgs(fs, args)
-	if err != nil {
+	spec := posArgs[0]
+	spec, opts.section = splitLoadSection(a, spec, opts.section)
+	skillName, subpath := splitSkillSubpath(spec)
+
+	item, subpath, code := a.resolveLoadItem(spec, skillName, subpath, opts.local)
+	if code != ExitSuccess {
+		return code
+	}
+	target := loadTarget{item: *item, subpath: subpath}
+
+	content, matchedSection, code := a.loadTargetContent(target, spec, opts, mode)
+	if code != ExitSuccess {
+		return code
+	}
+
+	pages := loadPages(content, opts)
+	if opts.page > len(pages) {
+		_, _ = fmt.Fprintf(a.Stderr, "error: page %d out of bounds; %s has %d page(s) (valid pages: 1..%d)\n", opts.page, spec, len(pages), len(pages))
 		return ExitUsage
 	}
 
-	posArgs = a.resolveSkillSpecs(posArgs)
-	mode := a.resolveMode(jsonFlag, rawFlag)
+	currentContent := pages[opts.page-1]
+	a.recordSkillLoad(target.item.Name, target.subpath, opts.page)
 
+	if mode == OutputModeJSON {
+		a.writeLoadJSON(target, matchedSection, currentContent, opts, len(pages))
+		return ExitSuccess
+	}
+	a.writeLoadText(currentContent, spec, opts, len(pages), mode)
+	return ExitSuccess
+}
+
+func (a *App) parseLoadArgs(args []string) (loadOptions, []string, bool) {
+	var opts loadOptions
+	fs := flag.NewFlagSet("load", flag.ContinueOnError)
+	fs.SetOutput(a.Stderr)
+
+	fs.BoolVar(&opts.json, "json", false, "Output loaded content as JSON")
+	fs.BoolVar(&opts.raw, "raw", false, "Output raw verbatim markdown content without extra formatting")
+	fs.BoolVar(&opts.local, "local", false, "Use locally cached or installed copy without checking remote upstream")
+	fs.BoolVar(&opts.update, "update", false, "Check remote upstream and update cached copy before loading")
+	fs.BoolVar(&opts.update, "u", false, "Check remote upstream and update cached copy before loading (shorthand)")
+	fs.BoolVar(&opts.force, "force", false, "Force loading/updating even if digest verification fails")
+	fs.BoolVar(&opts.force, "f", false, "Force loading/updating even if digest verification fails (shorthand)")
+	fs.IntVar(&opts.page, "page", 1, "Page number to display (1-based)")
+	fs.IntVar(&opts.page, "p", 1, "Page number to display (1-based, shorthand)")
+	fs.IntVar(&opts.pageSize, "page-size", DefaultPageSize, "Maximum page size in bytes")
+	fs.BoolVar(&opts.full, "full", false, "Output complete unpaginated content")
+	fs.StringVar(&opts.section, "section", "", "Extract a specific markdown section by heading slug or title")
+	fs.StringVar(&opts.section, "s", "", "Extract a specific markdown section (shorthand)")
+	fs.BoolVar(&opts.withDeps, "with-deps", false, "Load skill along with all transitive dependencies in topological order")
+
+	posArgs, err := parseFlagsWithArgs(fs, args)
+	if err != nil {
+		return opts, nil, false
+	}
+	return opts, posArgs, true
+}
+
+func (a *App) validateLoadRequest(posArgs []string, opts loadOptions) int {
 	if len(posArgs) == 0 {
 		_, _ = fmt.Fprintln(a.Stderr, "error: load requires a skill name or subpath (e.g. 'dojo load git/reference' or 'dojo load git#workflow')")
 		return ExitUsage
@@ -135,282 +205,320 @@ func (a *App) RunLoad(args []string) int {
 		_, _ = fmt.Fprintln(a.Stderr, "error: loading multiple skills simultaneously is disabled to prevent truncation; load skills individually (e.g. 'dojo load <skill>')")
 		return ExitUsage
 	}
-	if pageFlag < 1 {
-		_, _ = fmt.Fprintf(a.Stderr, "error: invalid page %d: page must be >= 1\n", pageFlag)
+	if opts.page < 1 {
+		_, _ = fmt.Fprintf(a.Stderr, "error: invalid page %d: page must be >= 1\n", opts.page)
 		return ExitUsage
 	}
-	if pageSizeFlag <= 0 || pageSizeFlag > MaxPageSize {
-		_, _ = fmt.Fprintf(a.Stderr, "error: invalid page-size %d: page-size must be between 1 and %d bytes (agent buffer safety ceiling)\n", pageSizeFlag, MaxPageSize)
+	if opts.pageSize <= 0 || opts.pageSize > MaxPageSize {
+		_, _ = fmt.Fprintf(a.Stderr, "error: invalid page-size %d: page-size must be between 1 and %d bytes (agent buffer safety ceiling)\n", opts.pageSize, MaxPageSize)
 		return ExitUsage
 	}
-	if fullFlag && pageFlag > 1 {
+	if opts.full && opts.page > 1 {
 		_, _ = fmt.Fprintln(a.Stderr, "error: cannot combine --full with -p/--page > 1")
 		return ExitUsage
 	}
+	return ExitSuccess
+}
 
-	spec := posArgs[0]
-	if idx := strings.Index(spec, "#"); idx > 0 && sectionFlag == "" {
-		candSpec := spec[:idx]
-		candSec := spec[idx+1:]
-		candParts := strings.SplitN(candSpec, "/", 2)
-		if !strings.Contains(candSpec, "/") {
-			spec = candSpec
-			sectionFlag = candSec
-		} else if _, err := a.Store.Get(candParts[0]); err == nil {
-			spec = candSpec
-			sectionFlag = candSec
-		}
+// splitLoadSection separates `skill#section` when the left side is a skill.
+func splitLoadSection(a *App, spec, section string) (string, string) {
+	idx := strings.Index(spec, "#")
+	if idx <= 0 || section != "" {
+		return spec, section
 	}
 
+	candSpec := spec[:idx]
+	candSection := spec[idx+1:]
+	if !strings.Contains(candSpec, "/") {
+		return candSpec, candSection
+	}
+	head := strings.SplitN(candSpec, "/", 2)[0]
+	if _, err := a.Store.Get(head); err == nil {
+		return candSpec, candSection
+	}
+	return spec, section
+}
+
+func splitSkillSubpath(spec string) (string, string) {
 	parts := strings.SplitN(spec, "/", 2)
-	skillName := parts[0]
-	subpath := ""
 	if len(parts) == 2 {
-		subpath = parts[1]
+		return parts[0], parts[1]
+	}
+	return parts[0], ""
+}
+
+func (a *App) resolveLoadItem(spec, skillName, subpath string, localOnly bool) (*catalog.Item, string, int) {
+	item, err := a.Store.Get(skillName)
+	if err == nil {
+		return item, subpath, ExitSuccess
+	}
+	if !localOnly && shouldProbeGitHubOnLoad(spec, subpath) {
+		item, code := a.fetchLoadGitHubItem(spec)
+		if code != ExitSuccess {
+			return nil, "", code
+		}
+		if item != nil {
+			return item, "", ExitSuccess
+		}
 	}
 
-	item, err := a.Store.Get(skillName)
-	if err != nil && !localFlag && shouldProbeGitHubOnLoad(spec, subpath) {
-		if ghTarget, ok := catalog.ParseGitHubTarget(spec); ok {
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			ghItem, ghErr := catalog.FetchGitHubSkill(ctx, ghTarget, a.getHTTPClient())
-			cancel()
-			if ghErr == nil && ghItem != nil {
-				item = ghItem
-				subpath = ""
-				err = nil
-			} else if ghErr != nil {
-				if code := MapErrorToExitCode(ghErr); code == ExitNetwork || code == ExitIntegrity {
-					_, _ = fmt.Fprintf(a.Stderr, "error: fetching skill from github %q: %v\n", spec, ghErr)
-					return code
-				}
-			}
-		}
+	suggestQuery := spec
+	if isBundledSubpath(subpath) {
+		suggestQuery = skillName
+	}
+	a.printNotFoundWithSuggestions("load", suggestQuery)
+	return nil, "", ExitNotFound
+}
+
+// fetchLoadGitHubItem returns (nil, success) when the spec is not a GitHub
+// target or the fetch failed in a way the catalog can still answer.
+func (a *App) fetchLoadGitHubItem(spec string) (*catalog.Item, int) {
+	ghTarget, ok := catalog.ParseGitHubTarget(spec)
+	if !ok {
+		return nil, ExitSuccess
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ghItem, err := catalog.FetchGitHubSkill(ctx, ghTarget, a.getHTTPClient())
+	cancel()
+	if err == nil && ghItem != nil {
+		return ghItem, ExitSuccess
 	}
 	if err != nil {
-		suggestQuery := spec
-		if isBundledSubpath(subpath) {
-			suggestQuery = skillName
+		if code := MapErrorToExitCode(err); code == ExitNetwork || code == ExitIntegrity {
+			_, _ = fmt.Fprintf(a.Stderr, "error: fetching skill from github %q: %v\n", spec, err)
+			return nil, code
 		}
-		a.printNotFoundWithSuggestions("load", suggestQuery)
+	}
+	return nil, ExitSuccess
+}
+
+// loadTargetContent loads either a bundled subpath or the skill body, resolves
+// dependencies, and extracts a requested section.
+func (a *App) loadTargetContent(target loadTarget, spec string, opts loadOptions, mode OutputMode) (string, string, int) {
+	var content string
+	var code int
+	if target.subpath != "" {
+		content, code = a.loadSubpathContent(target, opts.local)
+	} else {
+		content, code = a.loadSkillBody(target, opts, mode)
+	}
+	if code != ExitSuccess {
+		return "", "", code
+	}
+	if opts.section == "" {
+		return content, "", ExitSuccess
+	}
+	return a.extractLoadSection(content, opts.section, spec)
+}
+
+func (a *App) loadSubpathContent(target loadTarget, localOnly bool) (string, int) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	subpathItem := target.item
+	if localOnly {
+		subpathItem.URL = ""
+		subpathItem.Metadata = nil
+	}
+
+	content, err := runner.ReadFileContext(ctx, subpathItem, target.subpath, a.getHTTPClient())
+	if err == nil {
+		return content, ExitSuccess
+	}
+	if errors.Is(err, runner.ErrInvalidPath) {
+		_, _ = fmt.Fprintf(a.Stderr, "error: invalid path traversal in %q\n", target.subpath)
+		return "", ExitUsage
+	}
+	if errors.Is(err, runner.ErrFileNotFound) {
+		return "", a.reportMissingSubpath(target, localOnly)
+	}
+	_, _ = fmt.Fprintf(a.Stderr, "error: loading %s/%s: %v\n", target.item.Name, target.subpath, err)
+	return "", MapErrorToExitCode(err)
+}
+
+func (a *App) reportMissingSubpath(target loadTarget, localOnly bool) int {
+	if localOnly {
+		_, _ = fmt.Fprintf(a.Stderr, "error: subpath %q not found in local cache for skill %q. Run 'dojo load %s/%s' to fetch from remote.\n", target.subpath, target.item.Name, target.item.Name, target.subpath)
 		return ExitNotFound
 	}
-	target := loadTarget{
-		item:    *item,
-		subpath: subpath,
+
+	_, _ = fmt.Fprintf(a.Stderr, "error: subpath %q not found in skill %q.\n", target.subpath, target.item.Name)
+	loadSubpathSuggestions(a, target)
+	return ExitNotFound
+}
+
+func loadSubpathSuggestions(a *App, target loadTarget) []string {
+	var candidates []string
+	for _, ref := range a.listReferences(target.item) {
+		candidates = append(candidates, ref, "references/"+ref)
+	}
+	for _, refFile := range a.listReferenceFiles(target.item) {
+		candidates = append(candidates, refFile, "references/"+refFile)
+	}
+	for _, scr := range a.listScripts(target.item) {
+		candidates = append(candidates, scr, "scripts/"+scr)
 	}
 
-	var content string
-	var loadErr error
+	suggs := search.Suggest(target.subpath, uniqueStrings(candidates), 3)
+	if len(suggs) == 0 {
+		return nil
+	}
+	_, _ = fmt.Fprintln(a.Stderr, "\nDid you mean:")
+	for _, s := range suggs {
+		_, _ = fmt.Fprintf(a.Stderr, "  - dojo load %s/%s\n", target.item.Name, s)
+	}
+	return suggs
+}
 
-	if target.subpath != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
+func (a *App) loadSkillBody(target loadTarget, opts loadOptions, mode OutputMode) (string, int) {
+	rawContent, err := a.loadItemContentWithOpts(&target.item, opts.local, opts.update, opts.force)
+	if err != nil {
+		_, _ = fmt.Fprintf(a.Stderr, "error: loading skill %q: %v\n", target.item.Name, err)
+		if errors.Is(err, catalog.ErrDigestMismatch) {
+			writeDigestRemediation(a.Stderr, target.item.Name)
+		}
+		return "", MapErrorToExitCode(err)
+	}
 
-		subpathItem := target.item
-		if localFlag {
-			subpathItem.URL = ""
-			subpathItem.Metadata = nil
-		}
+	catalog.EnrichItemFromSkillMD(&target.item, []byte(rawContent))
+	if cat, ok := a.Store.(*catalog.Catalog); ok {
+		cat.AddItem(target.item)
+	}
 
-		content, loadErr = runner.ReadFileContext(ctx, subpathItem, target.subpath, a.getHTTPClient())
-		if loadErr != nil {
-			if errors.Is(loadErr, runner.ErrInvalidPath) {
-				_, _ = fmt.Fprintf(a.Stderr, "error: invalid path traversal in %q\n", target.subpath)
-				return ExitUsage
-			}
-			if errors.Is(loadErr, runner.ErrFileNotFound) {
-				if localFlag {
-					_, _ = fmt.Fprintf(a.Stderr, "error: subpath %q not found in local cache for skill %q. Run 'dojo load %s/%s' to fetch from remote.\n", target.subpath, target.item.Name, target.item.Name, target.subpath)
-					return ExitNotFound
-				}
-				_, _ = fmt.Fprintf(a.Stderr, "error: subpath %q not found in skill %q.\n", target.subpath, target.item.Name)
-				var candidates []string
-				for _, ref := range a.listReferences(target.item) {
-					candidates = append(candidates, ref, "references/"+ref)
-				}
-				for _, refFile := range a.listReferenceFiles(target.item) {
-					candidates = append(candidates, refFile, "references/"+refFile)
-				}
-				for _, scr := range a.listScripts(target.item) {
-					candidates = append(candidates, scr, "scripts/"+scr)
-				}
-				candidates = uniqueStrings(candidates)
-				if len(candidates) > 0 {
-					suggs := search.Suggest(target.subpath, candidates, 3)
-					if len(suggs) > 0 {
-						_, _ = fmt.Fprintln(a.Stderr, "\nDid you mean:")
-						for _, s := range suggs {
-							_, _ = fmt.Fprintf(a.Stderr, "  - dojo load %s/%s\n", target.item.Name, s)
-						}
-					}
-				}
-				return ExitNotFound
-			}
-			_, _ = fmt.Fprintf(a.Stderr, "error: loading %s/%s: %v\n", target.item.Name, target.subpath, loadErr)
-			return MapErrorToExitCode(loadErr)
+	if opts.withDeps {
+		combined, code := a.loadDependencies(target, rawContent, opts, mode)
+		if code != ExitSuccess {
+			return "", code
 		}
-	} else {
-		rawContent, err := a.loadItemContentWithOpts(&target.item, localFlag, updateFlag, forceFlag)
-		if err != nil {
-			_, _ = fmt.Fprintf(a.Stderr, "error: loading skill %q: %v\n", target.item.Name, err)
-			if errors.Is(err, catalog.ErrDigestMismatch) {
-				_, _ = fmt.Fprintln(a.Stderr, "\nDid you mean:")
-				_, _ = fmt.Fprintf(a.Stderr, "  - Load local cached copy:   dojo load %s --local\n", target.item.Name)
-				_, _ = fmt.Fprintf(a.Stderr, "  - Check upstream update:    dojo load %s --update\n", target.item.Name)
-				_, _ = fmt.Fprintf(a.Stderr, "  - Ignore digest check:      dojo load %s --force\n", target.item.Name)
-				_, _ = fmt.Fprintf(a.Stderr, "  - Synchronize catalogs:     dojo update\n")
-			}
-			return MapErrorToExitCode(err)
-		}
-		catalog.EnrichItemFromSkillMD(&target.item, []byte(rawContent))
-		if cat, ok := a.Store.(*catalog.Catalog); ok {
-			cat.AddItem(target.item)
-		}
-
-		if withDepsFlag {
-			depItems, depErr := catalog.ResolveDependencies(target.item.Name, a.Store)
-			if depErr != nil {
-				_, _ = fmt.Fprintf(a.Stderr, "error: resolving dependencies for %q: %v\n", target.item.Name, depErr)
-				return MapErrorToExitCode(depErr)
-			}
-			if len(depItems) > 1 {
-				var combined strings.Builder
-				for i, depIt := range depItems {
-					var depRaw string
-					if strings.EqualFold(depIt.Name, target.item.Name) {
-						depRaw = rawContent
-					} else {
-						depRaw, err = a.loadItemContentWithOpts(&depIt, localFlag, updateFlag, forceFlag)
-						if err != nil {
-							_, _ = fmt.Fprintf(a.Stderr, "error: loading dependency %q: %v\n", depIt.Name, err)
-							return MapErrorToExitCode(err)
-						}
-					}
-					if i > 0 {
-						combined.WriteString("\n\n---\n\n")
-					}
-					if mode == OutputModeRaw {
-						combined.WriteString(depRaw)
-					} else {
-						combined.WriteString(stripFrontmatter(depRaw))
-					}
-				}
-				content = combined.String()
-			}
-		}
-
-		if content == "" {
-			if mode == OutputModeRaw {
-				content = rawContent
-			} else {
-				content = stripFrontmatter(rawContent)
-			}
+		if combined != "" {
+			return combined, ExitSuccess
 		}
 	}
 
-	var matchedSection string
-	if sectionFlag != "" {
-		sec, secErr := catalog.ExtractSection(content, sectionFlag)
-		if secErr != nil || sec == nil {
-			_, _ = fmt.Fprintf(a.Stderr, "error: section %q not found in %q.\n", sectionFlag, spec)
-			sections := catalog.ParseSections(content)
-			if len(sections) > 0 {
-				_, _ = fmt.Fprintln(a.Stderr, "\nAvailable sections:")
-				for _, s := range sections {
-					_, _ = fmt.Fprintf(a.Stderr, "  - %s#%s (%s, %d bytes)\n", spec, s.Slug, s.Heading, s.Bytes)
-				}
+	if mode == OutputModeRaw {
+		return rawContent, ExitSuccess
+	}
+	return stripFrontmatter(rawContent), ExitSuccess
+}
+
+func writeDigestRemediation(w interface{ Write([]byte) (int, error) }, name string) {
+	_, _ = fmt.Fprintln(w, "\nDid you mean:")
+	_, _ = fmt.Fprintf(w, "  - Load local cached copy:   dojo load %s --local\n", name)
+	_, _ = fmt.Fprintf(w, "  - Check upstream update:    dojo load %s --update\n", name)
+	_, _ = fmt.Fprintf(w, "  - Ignore digest check:      dojo load %s --force\n", name)
+	_, _ = fmt.Fprintf(w, "  - Synchronize catalogs:     dojo update\n")
+}
+
+// loadDependencies concatenates the dependency graph when it has more than the
+// root skill, returning an empty string otherwise.
+func (a *App) loadDependencies(target loadTarget, rawContent string, opts loadOptions, mode OutputMode) (string, int) {
+	depItems, err := catalog.ResolveDependencies(target.item.Name, a.Store)
+	if err != nil {
+		_, _ = fmt.Fprintf(a.Stderr, "error: resolving dependencies for %q: %v\n", target.item.Name, err)
+		return "", MapErrorToExitCode(err)
+	}
+	if len(depItems) <= 1 {
+		return "", ExitSuccess
+	}
+
+	var combined strings.Builder
+	for i, dep := range depItems {
+		depRaw := rawContent
+		if !strings.EqualFold(dep.Name, target.item.Name) {
+			loaded, loadErr := a.loadItemContentWithOpts(&dep, opts.local, opts.update, opts.force)
+			if loadErr != nil {
+				_, _ = fmt.Fprintf(a.Stderr, "error: loading dependency %q: %v\n", dep.Name, loadErr)
+				return "", MapErrorToExitCode(loadErr)
 			}
-			return ExitNotFound
+			depRaw = loaded
 		}
-		content = sec.Content
-		matchedSection = sec.Slug
+		if i > 0 {
+			combined.WriteString("\n\n---\n\n")
+		}
+		if mode == OutputModeRaw {
+			combined.WriteString(depRaw)
+		} else {
+			combined.WriteString(stripFrontmatter(depRaw))
+		}
+	}
+	return combined.String(), ExitSuccess
+}
+
+func (a *App) extractLoadSection(content, section, spec string) (string, string, int) {
+	sec, err := catalog.ExtractSection(content, section)
+	if err != nil || sec == nil {
+		_, _ = fmt.Fprintf(a.Stderr, "error: section %q not found in %q.\n", section, spec)
+		sections := catalog.ParseSections(content)
+		if len(sections) > 0 {
+			_, _ = fmt.Fprintln(a.Stderr, "\nAvailable sections:")
+			for _, s := range sections {
+				_, _ = fmt.Fprintf(a.Stderr, "  - %s#%s (%s, %d bytes)\n", spec, s.Slug, s.Heading, s.Bytes)
+			}
+		}
+		return "", "", ExitNotFound
+	}
+	return sec.Content, sec.Slug, ExitSuccess
+}
+
+func loadPages(content string, opts loadOptions) []string {
+	if opts.full || opts.section != "" {
+		return []string{content}
+	}
+	return paginateContent(content, opts.pageSize)
+}
+
+func (a *App) writeLoadJSON(target loadTarget, matchedSection, content string, opts loadOptions, totalPages int) {
+	ver := target.item.Version
+	if ver == "" && target.item.Metadata != nil {
+		ver = target.item.Metadata["version"]
 	}
 
-	var pages []string
-	if fullFlag || sectionFlag != "" {
-		pages = []string{content}
-	} else {
-		pages = paginateContent(content, pageSizeFlag)
+	pageNum, totPages := 0, 0
+	if totalPages > 1 && !opts.full {
+		pageNum = opts.page
+		totPages = totalPages
 	}
 
-	totalPages := len(pages)
-	if pageFlag > totalPages {
-		_, _ = fmt.Fprintf(a.Stderr, "error: page %d out of bounds; %s has %d page(s) (valid pages: 1..%d)\n", pageFlag, spec, totalPages, totalPages)
-		return ExitUsage
+	res := loadResultItem{
+		Name:        target.item.Name,
+		Subpath:     target.subpath,
+		Section:     matchedSection,
+		Category:    target.item.Category,
+		Version:     ver,
+		Description: target.item.Description,
+		Page:        pageNum,
+		TotalPages:  totPages,
+		Content:     content,
+		Digest:      target.item.Digest,
+		Source:      target.item.Source,
 	}
 
-	currentPageContent := pages[pageFlag-1]
-	a.recordSkillLoad(target.item.Name, target.subpath, pageFlag)
+	enc := json.NewEncoder(a.Stdout)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(res)
+}
 
-	if mode == OutputModeJSON {
-		ver := target.item.Version
-		if ver == "" && target.item.Metadata != nil {
-			ver = target.item.Metadata["version"]
-		}
-
-		pageNum := 0
-		totPages := 0
-		if totalPages > 1 && !fullFlag {
-			pageNum = pageFlag
-			totPages = totalPages
-		}
-
-		type LoadResultItem struct {
-			Name        string `json:"name"`
-			Subpath     string `json:"subpath,omitempty"`
-			Section     string `json:"section,omitempty"`
-			Category    string `json:"category"`
-			Version     string `json:"version,omitempty"`
-			Description string `json:"description"`
-			Page        int    `json:"page,omitempty"`
-			TotalPages  int    `json:"total_pages,omitempty"`
-			Content     string `json:"content"`
-			Digest      string `json:"digest,omitempty"`
-			Source      string `json:"source,omitempty"`
-		}
-
-		res := LoadResultItem{
-			Name:        target.item.Name,
-			Subpath:     target.subpath,
-			Section:     matchedSection,
-			Category:    target.item.Category,
-			Version:     ver,
-			Description: target.item.Description,
-			Page:        pageNum,
-			TotalPages:  totPages,
-			Content:     currentPageContent,
-			Digest:      target.item.Digest,
-			Source:      target.item.Source,
-		}
-
-		enc := json.NewEncoder(a.Stdout)
-		enc.SetIndent("", "  ")
-		_ = enc.Encode(res)
-		return ExitSuccess
-	}
-
+func (a *App) writeLoadText(content, spec string, opts loadOptions, totalPages int, mode OutputMode) {
 	var sb strings.Builder
-	if totalPages > 1 && !fullFlag && pageFlag > 1 && mode != OutputModeRaw {
-		_, _ = fmt.Fprintf(&sb, "[Page %d of %d (continued)]\n\n", pageFlag, totalPages)
+	if totalPages > 1 && !opts.full && opts.page > 1 && mode != OutputModeRaw {
+		_, _ = fmt.Fprintf(&sb, "[Page %d of %d (continued)]\n\n", opts.page, totalPages)
 	}
 
-	sb.WriteString(currentPageContent)
-	if !strings.HasSuffix(currentPageContent, "\n") {
+	sb.WriteString(content)
+	if !strings.HasSuffix(content, "\n") {
 		sb.WriteString("\n")
 	}
 
-	if totalPages > 1 && !fullFlag && mode != OutputModeRaw {
+	if totalPages > 1 && !opts.full && mode != OutputModeRaw {
 		sb.WriteString("\n---\n")
-		if pageFlag < totalPages {
-			_, _ = fmt.Fprintf(&sb, "[Page %d of %d • Next: dojo load %s -p %d]\n", pageFlag, totalPages, spec, pageFlag+1)
+		if opts.page < totalPages {
+			_, _ = fmt.Fprintf(&sb, "[Page %d of %d • Next: dojo load %s -p %d]\n", opts.page, totalPages, spec, opts.page+1)
 		} else {
-			_, _ = fmt.Fprintf(&sb, "[Page %d of %d • End of document]\n", pageFlag, totalPages)
+			_, _ = fmt.Fprintf(&sb, "[Page %d of %d • End of document]\n", opts.page, totalPages)
 		}
 	}
 
 	_, _ = fmt.Fprint(a.Stdout, sb.String())
-	return ExitSuccess
 }
 
 func uniqueStrings(slice []string) []string {

@@ -622,223 +622,331 @@ func (a *App) runProfileSync(args []string) int {
 	return ExitSuccess
 }
 
+// profilePushOptions holds the parsed flags for `dojo profile push`.
+type profilePushOptions struct {
+	repo   string
+	all    bool
+	global bool
+	force  bool
+	json   bool
+	raw    bool
+}
+
+// locatedPushItem is one skill package resolved on disk, with an optional
+// cleanup for temporary packages.
+type locatedPushItem struct {
+	name    string
+	dir     string
+	cleanup func()
+}
+
 // runProfilePush packages local skills, rules (.mdc/.md), or slash commands/workflows
 // and pushes them (along with an updated skills.json) to a target directory or GitHub profile repository
 // (e.g. `dojo profile push github:jadmadi/agy-vm my-skill my-command` or `dojo profile push --all`).
 func (a *App) runProfilePush(args []string) int {
-	fs := flag.NewFlagSet("profile push", flag.ContinueOnError)
-	fs.SetOutput(a.Stderr)
-	var repoFlag string
-	var allFlag, globalFlag, forceFlag, jsonFlag, rawFlag bool
-
-	fs.StringVar(&repoFlag, "repo", "", "Target GitHub repository (github:owner/repo) or local profile directory")
-	fs.StringVar(&repoFlag, "r", "", "Target GitHub repository or directory (shorthand)")
-	fs.BoolVar(&allFlag, "all", false, "Push all installed skills in workspace (or global with -g)")
-	fs.BoolVar(&allFlag, "a", false, "Push all installed skills (shorthand)")
-	fs.BoolVar(&globalFlag, "global", false, "Search global scope first")
-	fs.BoolVar(&globalFlag, "g", false, "Search global scope first (shorthand)")
-	fs.BoolVar(&forceFlag, "force", false, "Skip pre-push security/secret scan")
-	fs.BoolVar(&forceFlag, "f", false, "Skip pre-push security/secret scan (shorthand)")
-	fs.BoolVar(&jsonFlag, "json", false, "Output in JSON format")
-	fs.BoolVar(&rawFlag, "raw", false, "Output in raw tab-separated format")
-
-	posArgs, err := parseFlagsWithArgs(fs, args)
-	if err != nil {
+	opts, posArgs, ok := a.parseProfilePushArgs(args)
+	if !ok {
 		return ExitUsage
 	}
 
-	effectiveGlobal := a.resolveEffectiveGlobalFlag(globalFlag)
-	targetSpec := strings.TrimSpace(repoFlag)
-	var rawSpecs []string
-
-	if targetSpec != "" {
-		rawSpecs = posArgs
-	} else if len(posArgs) > 0 {
-		first := strings.TrimSpace(posArgs[0])
-		isTarget := false
-		if strings.HasPrefix(first, "github:") || strings.HasPrefix(first, "http://") || strings.HasPrefix(first, "https://") {
-			isTarget = true
-		} else if info, statErr := os.Stat(first); statErr == nil && info.IsDir() {
-			if _, mdErr := os.Stat(filepath.Join(first, "SKILL.md")); mdErr != nil {
-				isTarget = true
-			}
-		} else if strings.Count(first, "/") == 1 && !strings.ContainsAny(first, ",#") {
-			if ghTarget, ok := catalog.ParseGitHubTarget(first); ok && ghTarget.Subpath == "" {
-				isTarget = true
-			}
-		}
-
-		if isTarget {
-			targetSpec = first
-			rawSpecs = posArgs[1:]
-		} else if a.Config != nil && a.Config.GetProfileRepo() != "" {
-			targetSpec = a.Config.GetProfileRepo()
-			rawSpecs = posArgs
-		} else {
-			targetSpec = first
-			rawSpecs = posArgs[1:]
-		}
-	} else if a.Config != nil && a.Config.GetProfileRepo() != "" {
-		targetSpec = a.Config.GetProfileRepo()
-		if !allFlag {
-			allFlag = true
-		}
-	}
-
+	effectiveGlobal := a.resolveEffectiveGlobalFlag(opts.global)
+	targetSpec, rawSpecs, allFlag := a.planProfilePushTarget(opts, posArgs)
 	if targetSpec == "" {
 		_, _ = fmt.Fprintln(a.Stderr, "error: profile push requires a target repository/directory (or a linked registry via 'dojo profile link') and at least one skill/command name (or --all)\nusage: dojo profile push [github:owner/repo | dir] <skill-or-command...>")
 		return ExitUsage
 	}
 
 	skillSpecs := a.resolveSkillSpecs(rawSpecs)
-
-	wd, _ := os.Getwd()
-	homeDir, _ := os.UserHomeDir()
-	var searchRoots []string
-	if effectiveGlobal {
-		searchRoots = []string{homeDir, wd}
-	} else {
-		searchRoots = []string{wd, homeDir}
-	}
-
-	for _, r := range searchRoots {
-		if r != "" {
-			_ = harness.ReconcileHarnesses(r)
-		}
-	}
+	searchRoots := profileSearchRoots(effectiveGlobal)
+	reconcileProfileRoots(searchRoots)
 
 	if allFlag && len(skillSpecs) == 0 {
-		primaryRoot := wd
-		if effectiveGlobal && homeDir != "" {
-			primaryRoot = homeDir
-		}
-		for name := range harness.DiscoverInstalledSkillDirs(primaryRoot) {
-			skillSpecs = append(skillSpecs, name)
-		}
-		sort.Strings(skillSpecs)
+		skillSpecs = discoverAllSkillNames(effectiveGlobal)
 	}
-
 	if len(skillSpecs) == 0 {
 		_, _ = fmt.Fprintln(a.Stderr, "error: specify at least one skill, rule, or command to push (or pass --all)\nexample: dojo profile push github:jadmadi/agy-vm my-skill my-command")
 		return ExitUsage
 	}
 
-	type locatedItem struct {
-		name    string
-		dir     string
-		cleanup func()
+	items, code := a.locatePushItems(skillSpecs, searchRoots)
+	if code != ExitSuccess {
+		return code
 	}
-	var items []locatedItem
-	defer func() {
-		for _, it := range items {
-			if it.cleanup != nil {
-				it.cleanup()
-			}
-		}
-	}()
+	defer cleanupPushItems(items)
 
+	if !opts.force {
+		if code := a.scanPushItems(items); code != ExitSuccess {
+			return code
+		}
+	}
+
+	workTree, isRemoteClone, cleanupTree, code := a.resolvePushWorkTree(targetSpec)
+	if code != ExitSuccess {
+		return code
+	}
+	defer cleanupTree()
+
+	pushedNames, code := a.upsertPushedSkills(workTree, items)
+	if code != ExitSuccess {
+		return code
+	}
+
+	gitPushed, code := a.commitAndPushProfile(workTree, pushedNames, targetSpec, isRemoteClone)
+	if code != ExitSuccess {
+		return code
+	}
+
+	a.writeProfilePushReport(opts, targetSpec, pushedNames, gitPushed)
+	return ExitSuccess
+}
+
+func (a *App) parseProfilePushArgs(args []string) (profilePushOptions, []string, bool) {
+	var opts profilePushOptions
+	fs := flag.NewFlagSet("profile push", flag.ContinueOnError)
+	fs.SetOutput(a.Stderr)
+
+	fs.StringVar(&opts.repo, "repo", "", "Target GitHub repository (github:owner/repo) or local profile directory")
+	fs.StringVar(&opts.repo, "r", "", "Target GitHub repository or directory (shorthand)")
+	fs.BoolVar(&opts.all, "all", false, "Push all installed skills in workspace (or global with -g)")
+	fs.BoolVar(&opts.all, "a", false, "Push all installed skills (shorthand)")
+	fs.BoolVar(&opts.global, "global", false, "Search global scope first")
+	fs.BoolVar(&opts.global, "g", false, "Search global scope first (shorthand)")
+	fs.BoolVar(&opts.force, "force", false, "Skip pre-push security/secret scan")
+	fs.BoolVar(&opts.force, "f", false, "Skip pre-push security/secret scan (shorthand)")
+	fs.BoolVar(&opts.json, "json", false, "Output in JSON format")
+	fs.BoolVar(&opts.raw, "raw", false, "Output in raw tab-separated format")
+
+	posArgs, err := parseFlagsWithArgs(fs, args)
+	if err != nil {
+		return opts, nil, false
+	}
+	return opts, posArgs, true
+}
+
+// planProfilePushTarget decides which argument is the destination and which
+// are skill specs, falling back to the linked registry.
+func (a *App) planProfilePushTarget(opts profilePushOptions, posArgs []string) (targetSpec string, rawSpecs []string, all bool) {
+	all = opts.all
+	targetSpec = strings.TrimSpace(opts.repo)
+
+	if targetSpec != "" {
+		return targetSpec, posArgs, all
+	}
+
+	if len(posArgs) > 0 {
+		first := strings.TrimSpace(posArgs[0])
+		if isProfilePushTarget(first) {
+			return first, posArgs[1:], all
+		}
+		if a.Config != nil && a.Config.GetProfileRepo() != "" {
+			return a.Config.GetProfileRepo(), posArgs, all
+		}
+		return first, posArgs[1:], all
+	}
+
+	if a.Config != nil && a.Config.GetProfileRepo() != "" {
+		return a.Config.GetProfileRepo(), nil, true
+	}
+	return "", nil, all
+}
+
+func isProfilePushTarget(first string) bool {
+	if strings.HasPrefix(first, "github:") || strings.HasPrefix(first, "http://") || strings.HasPrefix(first, "https://") {
+		return true
+	}
+	if info, statErr := os.Stat(first); statErr == nil && info.IsDir() {
+		if _, mdErr := os.Stat(filepath.Join(first, "SKILL.md")); mdErr != nil {
+			return true
+		}
+	}
+	if strings.Count(first, "/") == 1 && !strings.ContainsAny(first, ",#") {
+		if ghTarget, ok := catalog.ParseGitHubTarget(first); ok && ghTarget.Subpath == "" {
+			return true
+		}
+	}
+	return false
+}
+
+// profileSearchRoots orders the workspace and home directories by requested scope.
+func profileSearchRoots(effectiveGlobal bool) []string {
+	wd, _ := os.Getwd()
+	homeDir, _ := os.UserHomeDir()
+	if effectiveGlobal {
+		return []string{homeDir, wd}
+	}
+	return []string{wd, homeDir}
+}
+
+func reconcileProfileRoots(roots []string) {
+	for _, r := range roots {
+		if r != "" {
+			_ = harness.ReconcileHarnesses(r)
+		}
+	}
+}
+
+func discoverAllSkillNames(effectiveGlobal bool) []string {
+	wd, _ := os.Getwd()
+	homeDir, _ := os.UserHomeDir()
+	primaryRoot := wd
+	if effectiveGlobal && homeDir != "" {
+		primaryRoot = homeDir
+	}
+	var names []string
+	for name := range harness.DiscoverInstalledSkillDirs(primaryRoot) {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func (a *App) locatePushItems(skillSpecs, searchRoots []string) ([]locatedPushItem, int) {
+	var items []locatedPushItem
 	for _, spec := range skillSpecs {
 		name, dir, cleanup, lErr := harness.LocateOrPackageLocalSkill(spec, searchRoots)
-		if lErr != nil {
-			// Fall back to catalog store if not found in local workspace/home harnesses
-			if a.Store != nil {
-				if item, err := a.Store.Get(spec); err == nil && item != nil {
-					tmpDir, mErr := os.MkdirTemp("", "dojo-cat-pkg-*")
-					if mErr == nil {
-						pkgDir := filepath.Join(tmpDir, item.Name)
-						content, cErr := a.loadItemContent(item)
-						if cErr == nil {
-							var extraCandidates []string
-							for _, refFile := range a.listReferenceFiles(*item) {
-								extraCandidates = append(extraCandidates, "references/"+refFile)
-							}
-							for _, scr := range a.listScripts(*item) {
-								extraCandidates = append(extraCandidates, "scripts/"+scr)
-							}
-							ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-							_, instErr := runner.InstallSkillContext(ctx, *item, pkgDir, content, extraCandidates, a.getHTTPClient())
-							cancel()
-							if instErr == nil {
-								cl := func() { _ = os.RemoveAll(tmpDir) }
-								items = append(items, locatedItem{name: item.Name, dir: pkgDir, cleanup: cl})
-								continue
-							}
-						}
-						_ = os.RemoveAll(tmpDir)
-					}
-				}
-			}
+		if lErr == nil {
+			items = append(items, locatedPushItem{name: name, dir: dir, cleanup: cleanup})
+			continue
+		}
+
+		item, code := a.packageCatalogSkill(spec)
+		if code != ExitSuccess {
+			cleanupPushItems(items)
 			_, _ = fmt.Fprintf(a.Stderr, "error: %v\n", lErr)
-			return ExitNotFound
+			return nil, ExitNotFound
 		}
-		items = append(items, locatedItem{name: name, dir: dir, cleanup: cleanup})
+		items = append(items, item)
+	}
+	return items, ExitSuccess
+}
+
+// packageCatalogSkill builds a temporary skill package from the catalog when a
+// skill is not present in any local harness directory.
+func (a *App) packageCatalogSkill(spec string) (locatedPushItem, int) {
+	if a.Store == nil {
+		return locatedPushItem{}, ExitNotFound
+	}
+	item, err := a.Store.Get(spec)
+	if err != nil || item == nil {
+		return locatedPushItem{}, ExitNotFound
 	}
 
-	// Pre-push security & secret scan (G-03) unless --force is explicitly passed
-	if !forceFlag {
-		for _, it := range items {
-			findings := ScanDirectorySecurity(it.name, it.dir)
-			if len(findings) > 0 {
-				for _, f := range findings {
-					_, _ = fmt.Fprintf(a.Stderr, "error: pre-push security scan blocked skill %q: %s (use --force to override)\n", it.name, f.Message)
-				}
-				return ExitGeneral
-			}
-		}
+	tmpDir, mErr := os.MkdirTemp("", "dojo-cat-pkg-*")
+	if mErr != nil {
+		return locatedPushItem{}, ExitGeneral
+	}
+	pkgDir := filepath.Join(tmpDir, item.Name)
+	content, cErr := a.loadItemContent(item)
+	if cErr != nil {
+		_ = os.RemoveAll(tmpDir)
+		return locatedPushItem{}, ExitGeneral
 	}
 
-	// Determine whether targetSpec is a local directory or a remote GitHub repository
-	var workTree string
-	isRemoteClone := false
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	_, instErr := runner.InstallSkillContext(ctx, *item, pkgDir, content, itemResourceCandidates(a, item), a.getHTTPClient())
+	cancel()
+	if instErr != nil {
+		_ = os.RemoveAll(tmpDir)
+		return locatedPushItem{}, ExitGeneral
+	}
+
+	return locatedPushItem{
+		name:    item.Name,
+		dir:     pkgDir,
+		cleanup: func() { _ = os.RemoveAll(tmpDir) },
+	}, ExitSuccess
+}
+
+func cleanupPushItems(items []locatedPushItem) {
+	for _, it := range items {
+		if it.cleanup != nil {
+			it.cleanup()
+		}
+	}
+}
+
+func (a *App) scanPushItems(items []locatedPushItem) int {
+	for _, it := range items {
+		findings := ScanDirectorySecurity(it.name, it.dir)
+		if len(findings) == 0 {
+			continue
+		}
+		for _, f := range findings {
+			_, _ = fmt.Fprintf(a.Stderr, "error: pre-push security scan blocked skill %q: %s (use --force to override)\n", it.name, f.Message)
+		}
+		return ExitGeneral
+	}
+	return ExitSuccess
+}
+
+// resolvePushWorkTree returns a local directory to write into, cloning a GitHub
+// repository when a remote target is requested.
+func (a *App) resolvePushWorkTree(targetSpec string) (workTree string, isRemoteClone bool, cleanup func(), code int) {
 	if info, statErr := os.Stat(targetSpec); statErr == nil && info.IsDir() {
-		workTree = targetSpec
-	} else if ghTarget, ok := catalog.ParseGitHubTarget(strings.TrimPrefix(targetSpec, "github:")); ok {
-		tmpClone, tErr := os.MkdirTemp("", "dojo-profile-push-*")
-		if tErr != nil {
-			_, _ = fmt.Fprintf(a.Stderr, "error: creating temporary directory: %v\n", tErr)
-			return ExitGeneral
-		}
-		defer func() { _ = os.RemoveAll(tmpClone) }()
-
-		cloned := false
-		ghBin, ghErr := exec.LookPath("gh")
-		if ghErr != nil {
-			if _, sErr := os.Stat("/opt/antigravity/bin/gh"); sErr == nil {
-				ghBin = "/opt/antigravity/bin/gh"
-				ghErr = nil
-			}
-		}
-		if ghErr == nil && ghBin != "" {
-			cloneArgs := []string{"repo", "clone", ghTarget.RepoString(), tmpClone, "--", "--depth", "1"}
-			if ghTarget.Ref != "" && ghTarget.Ref != "main" {
-				cloneArgs = append(cloneArgs, "-b", ghTarget.Ref)
-			}
-			cmd := exec.Command(ghBin, cloneArgs...)
-			if err := cmd.Run(); err == nil {
-				cloned = true
-			}
-		}
-		if !cloned {
-			gitBin, gErr := exec.LookPath("git")
-			if gErr != nil {
-				_, _ = fmt.Fprintln(a.Stderr, "error: neither 'gh' nor 'git' is available to clone target repository")
-				return ExitGeneral
-			}
-			cloneURL := fmt.Sprintf("https://github.com/%s/%s.git", ghTarget.Owner, ghTarget.Repo)
-			cmd := exec.Command(gitBin, "clone", "--depth", "1", cloneURL, tmpClone)
-			if out, err := cmd.CombinedOutput(); err != nil {
-				_, _ = fmt.Fprintf(a.Stderr, "error: cloning %s: %v (%s)\n", ghTarget.RepoString(), err, strings.TrimSpace(string(out)))
-				return ExitGeneral
-			}
-		}
-		workTree = tmpClone
-		isRemoteClone = true
-	} else {
-		_, _ = fmt.Fprintf(a.Stderr, "error: target %q is neither an existing local directory nor a valid GitHub repository (github:owner/repo)\n", targetSpec)
-		return ExitUsage
+		return targetSpec, false, func() {}, ExitSuccess
 	}
 
-	// Copy each skill package into <workTree>/skills/<name>/ and upsert into <workTree>/skills.json
+	ghTarget, ok := catalog.ParseGitHubTarget(strings.TrimPrefix(targetSpec, "github:"))
+	if !ok {
+		_, _ = fmt.Fprintf(a.Stderr, "error: target %q is neither an existing local directory nor a valid GitHub repository (github:owner/repo)\n", targetSpec)
+		return "", false, nil, ExitUsage
+	}
+
+	tmpClone, tErr := os.MkdirTemp("", "dojo-profile-push-*")
+	if tErr != nil {
+		_, _ = fmt.Fprintf(a.Stderr, "error: creating temporary directory: %v\n", tErr)
+		return "", false, nil, ExitGeneral
+	}
+	cleanup = func() { _ = os.RemoveAll(tmpClone) }
+
+	if code := a.cloneProfileTarget(ghTarget, tmpClone); code != ExitSuccess {
+		cleanup()
+		return "", false, nil, code
+	}
+	return tmpClone, true, cleanup, ExitSuccess
+}
+
+func (a *App) cloneProfileTarget(ghTarget *catalog.GitHubTarget, dest string) int {
+	if cloneWithGH(ghTarget, dest) {
+		return ExitSuccess
+	}
+
+	gitBin, gErr := exec.LookPath("git")
+	if gErr != nil {
+		_, _ = fmt.Fprintln(a.Stderr, "error: neither 'gh' nor 'git' is available to clone target repository")
+		return ExitGeneral
+	}
+	cloneURL := fmt.Sprintf("https://github.com/%s/%s.git", ghTarget.Owner, ghTarget.Repo)
+	cmd := exec.Command(gitBin, "clone", "--depth", "1", cloneURL, dest)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		_, _ = fmt.Fprintf(a.Stderr, "error: cloning %s: %v (%s)\n", ghTarget.RepoString(), err, strings.TrimSpace(string(out)))
+		return ExitGeneral
+	}
+	return ExitSuccess
+}
+
+func cloneWithGH(ghTarget *catalog.GitHubTarget, dest string) bool {
+	ghBin, ghErr := exec.LookPath("gh")
+	if ghErr != nil {
+		if _, sErr := os.Stat("/opt/antigravity/bin/gh"); sErr == nil {
+			ghBin = "/opt/antigravity/bin/gh"
+			ghErr = nil
+		}
+	}
+	if ghErr != nil || ghBin == "" {
+		return false
+	}
+
+	cloneArgs := []string{"repo", "clone", ghTarget.RepoString(), dest, "--", "--depth", "1"}
+	if ghTarget.Ref != "" && ghTarget.Ref != "main" {
+		cloneArgs = append(cloneArgs, "-b", ghTarget.Ref)
+	}
+	return exec.Command(ghBin, cloneArgs...).Run() == nil
+}
+
+// upsertPushedSkills copies each package into <workTree>/skills/<name>/ and
+// rewrites skills.json in sorted order.
+func (a *App) upsertPushedSkills(workTree string, items []locatedPushItem) ([]string, int) {
 	manifestPath := filepath.Join(workTree, profile.DefaultManifestFilename)
 	manifest, _ := profile.LoadManifest(context.Background(), manifestPath, a.getHTTPClient())
 	if manifest == nil {
@@ -860,24 +968,19 @@ func (a *App) runProfilePush(args []string) int {
 		destSkillDir := filepath.Join(workTree, "skills", it.name)
 		if err := harness.CopySkillDir(it.dir, destSkillDir); err != nil {
 			_, _ = fmt.Fprintf(a.Stderr, "error: copying skill %q to %s: %v\n", it.name, destSkillDir, err)
-			return ExitGeneral
+			return nil, ExitGeneral
 		}
-		ver := ""
-		if data, rErr := os.ReadFile(filepath.Join(destSkillDir, "SKILL.md")); rErr == nil {
-			if fm, _, fErr := catalog.ParseFrontmatter(data); fErr == nil && fm != nil && fm.Metadata != nil {
-				ver = fm.Metadata["version"]
-			}
-		}
+
 		entry := existingByName[it.name]
 		entry.Name = it.name
-		if ver != "" {
+		if ver := skillManifestVersion(destSkillDir); ver != "" {
 			entry.Version = ver
 		}
 		existingByName[it.name] = entry
 		pushedNames = append(pushedNames, it.name)
 	}
 
-	var allNames []string
+	allNames := make([]string, 0, len(existingByName))
 	for name := range existingByName {
 		allNames = append(allNames, name)
 	}
@@ -889,32 +992,54 @@ func (a *App) runProfilePush(args []string) int {
 
 	if err := profile.SaveManifest(manifestPath, manifest); err != nil {
 		_, _ = fmt.Fprintf(a.Stderr, "error: saving %s: %v\n", manifestPath, err)
-		return ExitGeneral
+		return nil, ExitGeneral
+	}
+	return pushedNames, ExitSuccess
+}
+
+func skillManifestVersion(skillDir string) string {
+	data, err := os.ReadFile(filepath.Join(skillDir, "SKILL.md"))
+	if err != nil {
+		return ""
+	}
+	fm, _, err := catalog.ParseFrontmatter(data)
+	if err != nil || fm == nil || fm.Metadata == nil {
+		return ""
+	}
+	return fm.Metadata["version"]
+}
+
+// commitAndPushProfile commits the working tree when it is a git repository.
+func (a *App) commitAndPushProfile(workTree string, pushedNames []string, targetSpec string, isRemoteClone bool) (bool, int) {
+	if _, gitStatErr := os.Stat(filepath.Join(workTree, ".git")); gitStatErr != nil {
+		return false, ExitSuccess
+	}
+	gitBin, gErr := exec.LookPath("git")
+	if gErr != nil || gitBin == "" {
+		return false, ExitSuccess
 	}
 
-	// Commit and push if workTree is a git repository
-	gitPushed := false
-	if _, gitStatErr := os.Stat(filepath.Join(workTree, ".git")); gitStatErr == nil {
-		if gitBin, gErr := exec.LookPath("git"); gErr == nil && gitBin != "" {
-			_ = exec.Command(gitBin, "-C", workTree, "add", "-f", profile.DefaultManifestFilename, "skills").Run()
-			statusOut, _ := exec.Command(gitBin, "-C", workTree, "status", "--porcelain").Output()
-			if len(bytes.TrimSpace(statusOut)) > 0 {
-				commitMsg := fmt.Sprintf("feat(dojo): push skill(s) %s to profile", strings.Join(pushedNames, ", "))
-				_ = exec.Command(gitBin, "-C", workTree, "commit", "-m", commitMsg).Run()
-				if pushOut, pErr := exec.Command(gitBin, "-C", workTree, "push").CombinedOutput(); pErr == nil {
-					gitPushed = true
-				} else if isRemoteClone {
-					_, _ = fmt.Fprintf(a.Stderr, "error: git push to %s failed: %v (%s)\n", targetSpec, pErr, strings.TrimSpace(string(pushOut)))
-					return ExitGeneral
-				}
-			} else {
-				gitPushed = true
-			}
-		}
+	_ = exec.Command(gitBin, "-C", workTree, "add", "-f", profile.DefaultManifestFilename, "skills").Run()
+	statusOut, _ := exec.Command(gitBin, "-C", workTree, "status", "--porcelain").Output()
+	if len(bytes.TrimSpace(statusOut)) == 0 {
+		return true, ExitSuccess
 	}
 
-	mode := a.resolveMode(jsonFlag, rawFlag)
-	switch mode {
+	commitMsg := fmt.Sprintf("feat(dojo): push skill(s) %s to profile", strings.Join(pushedNames, ", "))
+	_ = exec.Command(gitBin, "-C", workTree, "commit", "-m", commitMsg).Run()
+	pushOut, pErr := exec.Command(gitBin, "-C", workTree, "push").CombinedOutput()
+	if pErr == nil {
+		return true, ExitSuccess
+	}
+	if isRemoteClone {
+		_, _ = fmt.Fprintf(a.Stderr, "error: git push to %s failed: %v (%s)\n", targetSpec, pErr, strings.TrimSpace(string(pushOut)))
+		return false, ExitGeneral
+	}
+	return false, ExitSuccess
+}
+
+func (a *App) writeProfilePushReport(opts profilePushOptions, targetSpec string, pushedNames []string, gitPushed bool) {
+	switch a.resolveMode(opts.json, opts.raw) {
 	case OutputModeJSON:
 		enc := json.NewEncoder(a.Stdout)
 		enc.SetIndent("", "  ")
@@ -930,6 +1055,4 @@ func (a *App) runProfilePush(args []string) int {
 		_, _ = fmt.Fprintf(a.Stdout, "✓ Pushed %d skill(s) [%s] and updated skills.json in %s\n",
 			len(pushedNames), strings.Join(pushedNames, ", "), targetSpec)
 	}
-	return ExitSuccess
 }
-

@@ -45,73 +45,141 @@ func resolveInstallDirectory(scope, skillName string) (string, error) {
 	return filepath.Join(wsDir, ".agents", "skills", skillName), nil
 }
 
+// learnOptions holds the parsed flags for `dojo learn`.
+type learnOptions struct {
+	global   bool
+	force    bool
+	load     bool
+	withDeps bool
+	target   string
+	json     bool
+	raw      bool
+}
+
+// installResult is one row of the learn report.
+type installResult struct {
+	Name    string   `json:"name"`
+	Status  string   `json:"status"`
+	Path    string   `json:"path,omitempty"`
+	Version string   `json:"version,omitempty"`
+	Digest  string   `json:"digest,omitempty"`
+	Files   []string `json:"files,omitempty"`
+	Targets []string `json:"targets,omitempty"`
+	Content string   `json:"content,omitempty"`
+	Message string   `json:"message,omitempty"`
+}
+
 func (a *App) RunLearn(args []string) int {
-	fs := flag.NewFlagSet("learn", flag.ContinueOnError)
-	fs.SetOutput(a.Stderr)
-	var globalFlag, forceFlag, loadFlag, withDepsFlag, jsonFlag, rawFlag bool
-	var targetFlag string
-
-	fs.BoolVar(&globalFlag, "global", false, "Install skill to global store (~/.agents/skills/)")
-	fs.BoolVar(&globalFlag, "g", false, "Install skill to global store (shorthand)")
-	fs.BoolVar(&forceFlag, "force", false, "Overwrite existing skill installation")
-	fs.BoolVar(&forceFlag, "f", false, "Overwrite existing skill installation (shorthand)")
-	fs.BoolVar(&loadFlag, "load", false, "Output loaded skill markdown to stdout upon successful installation")
-	fs.BoolVar(&loadFlag, "l", false, "Output loaded skill markdown (shorthand)")
-	fs.BoolVar(&withDepsFlag, "with-deps", false, "Install skill and all transitive dependencies in topological order")
-	fs.StringVar(&targetFlag, "target", "", "Also sync learned skill(s) to target harnesses (e.g. all, claude,cursor,gemini,windsurf,opencode,sila)")
-	fs.StringVar(&targetFlag, "t", "", "Also sync learned skill(s) to target harnesses (shorthand)")
-	fs.BoolVar(&jsonFlag, "json", false, "Output in JSON format")
-	fs.BoolVar(&rawFlag, "raw", false, "Output in raw format")
-
-	posArgs, err := parseFlagsWithArgs(fs, args)
-	if err != nil {
+	opts, posArgs, ok := a.parseLearnArgs(args)
+	if !ok {
 		return ExitUsage
 	}
 	posArgs = a.resolveSkillSpecs(posArgs)
-
-	scope, wsDir := resolveScopeAndDir(globalFlag)
-	syncBaseDir := wsDir
-	if globalFlag {
-		syncBaseDir, _ = os.UserHomeDir()
-	}
-
-	var syncTargets []harness.Target
-	if targetFlag != "" {
-		syncTargets, err = harness.ParseTargets(targetFlag, syncBaseDir)
-		if err != nil {
-			_, _ = fmt.Fprintf(a.Stderr, "error: %v\n", err)
-			return ExitUsage
-		}
-	}
-
-	mode := a.resolveMode(jsonFlag, rawFlag)
-
-	var itemsToInstall []catalog.Item
-	var notFounds []string
-
 	if len(posArgs) == 0 {
 		_, _ = fmt.Fprintln(a.Stderr, "error: learn requires at least one skill name or repository (e.g. 'github:owner/repo')")
 		return ExitUsage
 	}
 
-	for _, spec := range posArgs {
+	scope, wsDir := resolveScopeAndDir(opts.global)
+	syncBaseDir := wsDir
+	if opts.global {
+		syncBaseDir, _ = os.UserHomeDir()
+	}
+
+	syncTargets, code := a.resolveLearnTargets(opts.target, syncBaseDir)
+	if code != ExitSuccess {
+		return code
+	}
+
+	items, code := a.resolveLearnItems(posArgs)
+	if code != ExitSuccess {
+		return code
+	}
+	if opts.withDeps {
+		items, code = a.expandLearnDependencies(items)
+		if code != ExitSuccess {
+			return code
+		}
+	}
+
+	st := a.loadState()
+	installed := st.GetInstalledSkills(scope, wsDir)
+
+	var results []installResult
+	errExitCode := ExitSuccess
+	for _, item := range items {
+		res, itemCode := a.installOneItem(item, opts, scope, wsDir, syncBaseDir, syncTargets, installed, st)
+		if itemCode != ExitSuccess {
+			errExitCode = promoteExitCode(errExitCode, itemCode)
+		}
+		results = append(results, res)
+	}
+
+	a.saveState(st)
+	a.writeLearnReport(results, opts, scope)
+	return learnExitCode(errExitCode, results)
+}
+
+func (a *App) parseLearnArgs(args []string) (learnOptions, []string, bool) {
+	var opts learnOptions
+	fs := flag.NewFlagSet("learn", flag.ContinueOnError)
+	fs.SetOutput(a.Stderr)
+
+	fs.BoolVar(&opts.global, "global", false, "Install skill to global store (~/.agents/skills/)")
+	fs.BoolVar(&opts.global, "g", false, "Install skill to global store (shorthand)")
+	fs.BoolVar(&opts.force, "force", false, "Overwrite existing skill installation")
+	fs.BoolVar(&opts.force, "f", false, "Overwrite existing skill installation (shorthand)")
+	fs.BoolVar(&opts.load, "load", false, "Output loaded skill markdown to stdout upon successful installation")
+	fs.BoolVar(&opts.load, "l", false, "Output loaded skill markdown (shorthand)")
+	fs.BoolVar(&opts.withDeps, "with-deps", false, "Install skill and all transitive dependencies in topological order")
+	fs.StringVar(&opts.target, "target", "", "Also sync learned skill(s) to target harnesses (e.g. all, claude,cursor,gemini,windsurf,opencode,sila)")
+	fs.StringVar(&opts.target, "t", "", "Also sync learned skill(s) to target harnesses (shorthand)")
+	fs.BoolVar(&opts.json, "json", false, "Output in JSON format")
+	fs.BoolVar(&opts.raw, "raw", false, "Output in raw format")
+
+	posArgs, err := parseFlagsWithArgs(fs, args)
+	if err != nil {
+		return opts, nil, false
+	}
+	return opts, posArgs, true
+}
+
+func (a *App) resolveLearnTargets(targetSpec, syncBaseDir string) ([]harness.Target, int) {
+	if targetSpec == "" {
+		return nil, ExitSuccess
+	}
+	targets, err := harness.ParseTargets(targetSpec, syncBaseDir)
+	if err != nil {
+		_, _ = fmt.Fprintf(a.Stderr, "error: %v\n", err)
+		return nil, ExitUsage
+	}
+	return targets, ExitSuccess
+}
+
+// resolveLearnItems turns specs into catalog items, fetching GitHub targets and
+// reporting missing names.
+func (a *App) resolveLearnItems(specs []string) ([]catalog.Item, int) {
+	var items []catalog.Item
+	var notFounds []string
+
+	for _, spec := range specs {
 		if isGitHubSkillSpec(spec) {
 			target, ok := catalog.ParseGitHubTarget(spec)
 			if !ok {
 				_, _ = fmt.Fprintf(a.Stderr, "error: invalid github skill target %q\n", spec)
-				return ExitUsage
+				return nil, ExitUsage
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			item, err := catalog.FetchGitHubSkill(ctx, target, a.getHTTPClient())
 			cancel()
 			if err != nil {
 				_, _ = fmt.Fprintf(a.Stderr, "error: fetching skill from github %q: %v\n", spec, err)
-				return MapErrorToExitCode(err)
+				return nil, MapErrorToExitCode(err)
 			}
 			if cat, ok := a.Store.(*catalog.Catalog); ok {
 				cat.AddItem(*item)
 			}
-			itemsToInstall = append(itemsToInstall, *item)
+			items = append(items, *item)
 			continue
 		}
 
@@ -120,271 +188,255 @@ func (a *App) RunLearn(args []string) int {
 			notFounds = append(notFounds, spec)
 			continue
 		}
-		itemsToInstall = append(itemsToInstall, *item)
+		items = append(items, *item)
 	}
 
 	if len(notFounds) > 0 {
 		for _, name := range notFounds {
 			a.printNotFoundWithSuggestions("learn", name)
 		}
-		return ExitNotFound
+		return nil, ExitNotFound
 	}
+	return items, ExitSuccess
+}
 
-	if withDepsFlag {
-		var expanded []catalog.Item
-		seenItems := make(map[string]bool)
-		for _, rootItem := range itemsToInstall {
-			if len(rootItem.Dependencies) == 0 {
-				if rawContent, lErr := a.loadItemContent(&rootItem); lErr == nil {
-					catalog.EnrichItemFromSkillMD(&rootItem, []byte(rawContent))
-					if cat, ok := a.Store.(*catalog.Catalog); ok {
-						cat.AddItem(rootItem)
-					}
-				}
-			}
-			resolved, depErr := catalog.ResolveDependencies(rootItem.Name, a.Store)
-			if depErr != nil {
-				_, _ = fmt.Fprintf(a.Stderr, "error: resolving dependencies for %q: %v\n", rootItem.Name, depErr)
-				return MapErrorToExitCode(depErr)
-			}
-			for _, depIt := range resolved {
-				low := strings.ToLower(depIt.Name)
-				if !seenItems[low] {
-					seenItems[low] = true
-					expanded = append(expanded, depIt)
+// expandLearnDependencies resolves the transitive dependency graph in
+// topological order and de-duplicates by name.
+func (a *App) expandLearnDependencies(items []catalog.Item) ([]catalog.Item, int) {
+	var expanded []catalog.Item
+	seen := make(map[string]bool)
+
+	for _, rootItem := range items {
+		if len(rootItem.Dependencies) == 0 {
+			if rawContent, err := a.loadItemContent(&rootItem); err == nil {
+				catalog.EnrichItemFromSkillMD(&rootItem, []byte(rawContent))
+				if cat, ok := a.Store.(*catalog.Catalog); ok {
+					cat.AddItem(rootItem)
 				}
 			}
 		}
-		itemsToInstall = expanded
-	}
 
-	st := a.loadState()
-	installed := st.GetInstalledSkills(scope, wsDir)
-
-	type InstallResult struct {
-		Name    string   `json:"name"`
-		Status  string   `json:"status"`
-		Path    string   `json:"path,omitempty"`
-		Version string   `json:"version,omitempty"`
-		Digest  string   `json:"digest,omitempty"`
-		Files   []string `json:"files,omitempty"`
-		Targets []string `json:"targets,omitempty"`
-		Content string   `json:"content,omitempty"`
-		Message string   `json:"message,omitempty"`
-	}
-
-	var results []InstallResult
-	errExitCode := ExitSuccess
-
-	for _, item := range itemsToInstall {
-		skillDir, dirErr := resolveInstallDirectory(scope, item.Name)
-		if dirErr != nil {
-			if errExitCode == ExitSuccess {
-				errExitCode = ExitGeneral
-			}
-			results = append(results, InstallResult{
-				Name:    item.Name,
-				Status:  "error",
-				Message: dirErr.Error(),
-			})
-			continue
-		}
-
-		if rec, exists := installed[item.Name]; exists && !forceFlag {
-			var syncedPaths []string
-			if len(syncTargets) > 0 && syncBaseDir != "" {
-				for _, stRes := range harness.SyncSkill(item.Name, rec.Path, syncBaseDir, syncTargets) {
-					if stRes.Status == "synced" {
-						syncedPaths = append(syncedPaths, fmt.Sprintf("%s:%s", stRes.Harness, stRes.Path))
-					}
-				}
-			}
-			results = append(results, InstallResult{
-				Name:    item.Name,
-				Status:  "already_installed",
-				Path:    rec.Path,
-				Version: rec.Version,
-				Digest:  rec.Digest,
-				Files:   rec.Files,
-				Targets: syncedPaths,
-				Message: fmt.Sprintf("skill %q is already installed in %s scope; pass -f/--force to overwrite", item.Name, scope),
-			})
-			continue
-		}
-
-		content, err := a.loadItemContent(&item)
+		resolved, err := catalog.ResolveDependencies(rootItem.Name, a.Store)
 		if err != nil {
-			if code := MapErrorToExitCode(err); errExitCode == ExitSuccess || errExitCode == ExitGeneral {
-				errExitCode = code
-			}
-			results = append(results, InstallResult{
-				Name:    item.Name,
-				Status:  "error",
-				Message: fmt.Sprintf("failed to load skill content: %v", err),
-			})
-			continue
+			_, _ = fmt.Fprintf(a.Stderr, "error: resolving dependencies for %q: %v\n", rootItem.Name, err)
+			return nil, MapErrorToExitCode(err)
 		}
-
-		var extraCandidates []string
-		for _, refFile := range a.listReferenceFiles(item) {
-			extraCandidates = append(extraCandidates, "references/"+refFile)
-		}
-		for _, scr := range a.listScripts(item) {
-			extraCandidates = append(extraCandidates, "scripts/"+scr)
-		}
-
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-		files, err := runner.InstallSkillContext(ctx, item, skillDir, content, extraCandidates, a.getHTTPClient())
-		cancel()
-
-		if err != nil {
-			if code := MapErrorToExitCode(err); errExitCode == ExitSuccess || errExitCode == ExitGeneral {
-				errExitCode = code
-			}
-			results = append(results, InstallResult{
-				Name:    item.Name,
-				Status:  "error",
-				Message: fmt.Sprintf("installation failed: %v", err),
-			})
-			continue
-		}
-
-		pkgDigest, _ := state.ComputePackageDigest(skillDir, files)
-
-		ver := item.Version
-		if ver == "" && item.Metadata != nil {
-			ver = item.Metadata["version"]
-		}
-
-		origin := state.OriginCatalog
-		repo := ""
-		ref := ""
-		rawURL := ""
-		if strings.HasPrefix(item.Source, "github:") {
-			origin = state.OriginGitHub
-			if item.Metadata != nil {
-				repo = item.Metadata["repo"]
-				ref = item.Metadata["ref"]
-				rawURL = item.Metadata["canonical"]
-			}
-		} else if item.Metadata != nil && (item.Metadata["repo"] != "" || item.Metadata["canonical"] != "") {
-			if item.Metadata["repo"] != "" {
-				repo = item.Metadata["repo"]
-				ref = item.Metadata["ref"]
-				origin = state.OriginGitHub
-			}
-			if item.Metadata["canonical"] != "" {
-				rawURL = item.Metadata["canonical"]
-			}
-		} else if strings.Contains(item.URL, "raw.githubusercontent.com") {
-			origin = state.OriginGitHub
-			rawURL = item.URL
-		}
-		if rawURL == "" && item.URL != "" {
-			rawURL = item.URL
-		}
-
-		rec := state.SkillRecord{
-			Name:            item.Name,
-			Scope:           scope,
-			Path:            skillDir,
-			Version:         ver,
-			Digest:          pkgDigest,
-			InstalledDigest: pkgDigest,
-			Status:          state.StatusInstalled,
-			InstalledAt:     time.Now().UTC(),
-			UpdatedAt:       time.Now().UTC(),
-			Origin:          origin,
-			Repo:            repo,
-			Ref:             ref,
-			RawURL:          rawURL,
-			Catalog:         item.Source,
-			Files:           files,
-		}
-		st.RecordInstall(scope, wsDir, rec)
-		st.RecordLearn(item.Name)
-
-		var syncedPaths []string
-		if len(syncTargets) > 0 && syncBaseDir != "" {
-			for _, stRes := range harness.SyncSkill(item.Name, skillDir, syncBaseDir, syncTargets) {
-				if stRes.Status == "synced" {
-					syncedPaths = append(syncedPaths, fmt.Sprintf("%s:%s", stRes.Harness, stRes.Path))
-				}
+		for _, dep := range resolved {
+			low := strings.ToLower(dep.Name)
+			if !seen[low] {
+				seen[low] = true
+				expanded = append(expanded, dep)
 			}
 		}
+	}
+	return expanded, ExitSuccess
+}
 
-		res := InstallResult{
+// installOneItem installs a single catalog item and returns its report row.
+func (a *App) installOneItem(item catalog.Item, opts learnOptions, scope, wsDir, syncBaseDir string, syncTargets []harness.Target, installed map[string]state.SkillRecord, st *state.State) (installResult, int) {
+	skillDir, dirErr := resolveInstallDirectory(scope, item.Name)
+	if dirErr != nil {
+		return installResult{
 			Name:    item.Name,
-			Status:  "installed",
-			Path:    skillDir,
-			Version: ver,
-			Digest:  pkgDigest,
-			Files:   files,
-			Targets: syncedPaths,
-		}
-		if loadFlag {
-			res.Content = stripFrontmatter(content)
-			st.RecordLoadDetailed(item.Name, "", 1)
-		}
-		results = append(results, res)
+			Status:  "error",
+			Message: dirErr.Error(),
+		}, ExitGeneral
 	}
 
-	a.saveState(st)
+	if rec, exists := installed[item.Name]; exists && !opts.force {
+		return installResult{
+			Name:    item.Name,
+			Status:  "already_installed",
+			Path:    rec.Path,
+			Version: rec.Version,
+			Digest:  rec.Digest,
+			Files:   rec.Files,
+			Targets: syncedTargetPaths(item.Name, rec.Path, syncBaseDir, syncTargets),
+			Message: fmt.Sprintf("skill %q is already installed in %s scope; pass -f/--force to overwrite", item.Name, scope),
+		}, ExitSuccess
+	}
 
-	switch mode {
+	content, err := a.loadItemContent(&item)
+	if err != nil {
+		return installResult{
+			Name:    item.Name,
+			Status:  "error",
+			Message: fmt.Sprintf("failed to load skill content: %v", err),
+		}, MapErrorToExitCode(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	files, err := runner.InstallSkillContext(ctx, item, skillDir, content, itemResourceCandidates(a, &item), a.getHTTPClient())
+	cancel()
+	if err != nil {
+		return installResult{
+			Name:    item.Name,
+			Status:  "error",
+			Message: fmt.Sprintf("installation failed: %v", err),
+		}, MapErrorToExitCode(err)
+	}
+
+	pkgDigest, _ := state.ComputePackageDigest(skillDir, files)
+	ver := learnItemVersion(item)
+	rec := buildLearnedRecord(item, scope, skillDir, ver, pkgDigest, files)
+	st.RecordInstall(scope, wsDir, rec)
+	st.RecordLearn(item.Name)
+
+	res := installResult{
+		Name:    item.Name,
+		Status:  "installed",
+		Path:    skillDir,
+		Version: ver,
+		Digest:  pkgDigest,
+		Files:   files,
+		Targets: syncedTargetPaths(item.Name, skillDir, syncBaseDir, syncTargets),
+	}
+	if opts.load {
+		res.Content = stripFrontmatter(content)
+		st.RecordLoadDetailed(item.Name, "", 1)
+	}
+	return res, ExitSuccess
+}
+
+func learnItemVersion(item catalog.Item) string {
+	if item.Version != "" {
+		return item.Version
+	}
+	if item.Metadata != nil {
+		return item.Metadata["version"]
+	}
+	return ""
+}
+
+// buildLearnedRecord derives install provenance from the catalog item.
+func buildLearnedRecord(item catalog.Item, scope, skillDir, version, digest string, files []string) state.SkillRecord {
+	origin := state.OriginCatalog
+	repo, ref, rawURL := "", "", ""
+
+	switch {
+	case strings.HasPrefix(item.Source, "github:"):
+		origin = state.OriginGitHub
+		if item.Metadata != nil {
+			repo = item.Metadata["repo"]
+			ref = item.Metadata["ref"]
+			rawURL = item.Metadata["canonical"]
+		}
+	case item.Metadata != nil && (item.Metadata["repo"] != "" || item.Metadata["canonical"] != ""):
+		if item.Metadata["repo"] != "" {
+			repo = item.Metadata["repo"]
+			ref = item.Metadata["ref"]
+			origin = state.OriginGitHub
+		}
+		if item.Metadata["canonical"] != "" {
+			rawURL = item.Metadata["canonical"]
+		}
+	case strings.Contains(item.URL, "raw.githubusercontent.com"):
+		origin = state.OriginGitHub
+		rawURL = item.URL
+	}
+	if rawURL == "" && item.URL != "" {
+		rawURL = item.URL
+	}
+
+	now := time.Now().UTC()
+	return state.SkillRecord{
+		Name:            item.Name,
+		Scope:           scope,
+		Path:            skillDir,
+		Version:         version,
+		Digest:          digest,
+		InstalledDigest: digest,
+		Status:          state.StatusInstalled,
+		InstalledAt:     now,
+		UpdatedAt:       now,
+		Origin:          origin,
+		Repo:            repo,
+		Ref:             ref,
+		RawURL:          rawURL,
+		Catalog:         item.Source,
+		Files:           files,
+	}
+}
+
+// syncedTargetPaths projects a skill and reports the harnesses that accepted it.
+func syncedTargetPaths(name, skillDir, syncBaseDir string, targets []harness.Target) []string {
+	if len(targets) == 0 || syncBaseDir == "" {
+		return nil
+	}
+	var paths []string
+	for _, res := range harness.SyncSkill(name, skillDir, syncBaseDir, targets) {
+		if res.Status == "synced" {
+			paths = append(paths, fmt.Sprintf("%s:%s", res.Harness, res.Path))
+		}
+	}
+	return paths
+}
+
+func (a *App) writeLearnReport(results []installResult, opts learnOptions, scope string) {
+	switch a.resolveMode(opts.json, opts.raw) {
 	case OutputModeJSON:
 		enc := json.NewEncoder(a.Stdout)
 		enc.SetIndent("", "  ")
 		_ = enc.Encode(results)
 	case OutputModeRaw:
-		for _, r := range results {
-			if r.Status == "installed" {
-				_, _ = fmt.Fprintf(a.Stdout, "installed\t%s\t%s\t%s\t%d\n",
-					sanitizeTSVField(r.Name),
-					sanitizeTSVField(r.Version),
-					sanitizeTSVField(r.Path),
-					len(r.Files),
-				)
-				if loadFlag && r.Content != "" {
-					_, _ = fmt.Fprint(a.Stdout, r.Content)
-					if !strings.HasSuffix(r.Content, "\n") {
-						_, _ = fmt.Fprintln(a.Stdout)
-					}
-				}
-			} else {
-				_, _ = fmt.Fprintf(a.Stdout, "%s\t%s\t%s\n",
-					sanitizeTSVField(r.Status),
-					sanitizeTSVField(r.Name),
-					sanitizeTSVField(r.Message),
-				)
-			}
+		writeLearnRaw(a.Stdout, results, opts.load)
+	default:
+		writeLearnHuman(a.Stdout, a.Stderr, results, opts.load, scope)
+	}
+}
+
+func writeLearnRaw(w interface{ Write([]byte) (int, error) }, results []installResult, load bool) {
+	for _, r := range results {
+		if r.Status != "installed" {
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n",
+				sanitizeTSVField(r.Status),
+				sanitizeTSVField(r.Name),
+				sanitizeTSVField(r.Message),
+			)
+			continue
 		}
-	default: // OutputModeHuman
-		for _, r := range results {
-			switch r.Status {
-			case "installed":
-				_, _ = fmt.Fprintf(a.Stdout, "✓ Learned skill %q into %s scope (%d files in %s)\n", r.Name, scope, len(r.Files), r.Path)
-				for _, tp := range r.Targets {
-					_, _ = fmt.Fprintf(a.Stdout, "  ↪ Synced to %s\n", tp)
-				}
-				if loadFlag && r.Content != "" {
-					_, _ = fmt.Fprintln(a.Stdout, "\n--- Skill Content ---")
-					_, _ = fmt.Fprint(a.Stdout, r.Content)
-					if !strings.HasSuffix(r.Content, "\n") {
-						_, _ = fmt.Fprintln(a.Stdout)
-					}
-				}
-			case "already_installed":
-				_, _ = fmt.Fprintf(a.Stderr, "• %s\n", r.Message)
-				for _, tp := range r.Targets {
-					_, _ = fmt.Fprintf(a.Stdout, "  ↪ Synced to %s\n", tp)
-				}
-			default:
-				_, _ = fmt.Fprintf(a.Stderr, "✗ Failed to learn skill %q: %s\n", r.Name, r.Message)
+		_, _ = fmt.Fprintf(w, "installed\t%s\t%s\t%s\t%d\n",
+			sanitizeTSVField(r.Name),
+			sanitizeTSVField(r.Version),
+			sanitizeTSVField(r.Path),
+			len(r.Files),
+		)
+		if load && r.Content != "" {
+			_, _ = fmt.Fprint(w, r.Content)
+			if !strings.HasSuffix(r.Content, "\n") {
+				_, _ = fmt.Fprintln(w)
 			}
 		}
 	}
+}
 
+func writeLearnHuman(stdout, stderr interface{ Write([]byte) (int, error) }, results []installResult, load bool, scope string) {
+	for _, r := range results {
+		switch r.Status {
+		case "installed":
+			_, _ = fmt.Fprintf(stdout, "✓ Learned skill %q into %s scope (%d files in %s)\n", r.Name, scope, len(r.Files), r.Path)
+			for _, tp := range r.Targets {
+				_, _ = fmt.Fprintf(stdout, "  ↪ Synced to %s\n", tp)
+			}
+			if load && r.Content != "" {
+				_, _ = fmt.Fprintln(stdout, "\n--- Skill Content ---")
+				_, _ = fmt.Fprint(stdout, r.Content)
+				if !strings.HasSuffix(r.Content, "\n") {
+					_, _ = fmt.Fprintln(stdout)
+				}
+			}
+		case "already_installed":
+			_, _ = fmt.Fprintf(stderr, "• %s\n", r.Message)
+			for _, tp := range r.Targets {
+				_, _ = fmt.Fprintf(stdout, "  ↪ Synced to %s\n", tp)
+			}
+		default:
+			_, _ = fmt.Fprintf(stderr, "✗ Failed to learn skill %q: %s\n", r.Name, r.Message)
+		}
+	}
+}
+
+func learnExitCode(errExitCode int, results []installResult) int {
 	if errExitCode != ExitSuccess {
 		return errExitCode
 	}

@@ -393,7 +393,6 @@ func (a *App) resolveSkillSpecs(specs []string) []string {
 	return resolved
 }
 
-
 func (a *App) resolveDefaultCatalogURL() string {
 	catURL := config.DefaultCatalogURL
 	if envURL := os.Getenv("DOJO_URL"); envURL != "" {
@@ -548,6 +547,17 @@ func (a *App) getSkillStatusWithState(item *catalog.Item, st *state.State) strin
 	return "catalog"
 }
 
+// invocation is the parsed top-level command line.
+type invocation struct {
+	opts        GlobalOptions
+	cmdName     string
+	cmdArgs     []string
+	showVersion bool
+	showHelp    bool
+	jsonFlag    bool
+	rawFlag     bool
+}
+
 // // Run executes the command line entrypoint for dojo CLI.
 func Run(args []string, stdout, stderr io.Writer) int {
 	if stdout == nil {
@@ -557,33 +567,70 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		stderr = os.Stderr
 	}
 
-	var opts GlobalOptions
-	var showVersion, showHelp bool
-	var jsonFlag, rawFlag bool
+	inv, code := parseInvocation(args, stderr)
+	if code != ExitSuccess {
+		return code
+	}
+
+	if code, handled := handleInformationalCommand(inv, stdout); handled {
+		return code
+	}
+
+	if inv.jsonFlag {
+		inv.opts.Mode = OutputModeJSON
+	} else if inv.rawFlag {
+		inv.opts.Mode = OutputModeRaw
+	}
+
+	if code := validateCommandName(inv.cmdName, stderr); code != ExitSuccess {
+		return code
+	}
+
+	if inv.cmdName == "completion" {
+		app := &App{Stdout: stdout, Stderr: stderr, Options: inv.opts}
+		return app.RunCompletion(inv.cmdArgs)
+	}
+
+	app, code := newCommandApp(inv.cmdName, inv.cmdArgs, inv.opts, stdout, stderr)
+	if code != ExitSuccess {
+		return code
+	}
+	return dispatchCommand(app, inv.cmdName, inv.cmdArgs)
+}
+
+func parseInvocation(args []string, stderr io.Writer) (invocation, int) {
+	var inv invocation
 
 	fs := flag.NewFlagSet("dojo", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 
-	fs.BoolVar(&jsonFlag, "json", false, "Output in JSON format")
-	fs.BoolVar(&rawFlag, "raw", false, "Output in raw format")
-	fs.StringVar(&opts.Config, "config", "", "Path to custom config file")
-	fs.BoolVar(&opts.Verbose, "verbose", false, "Enable verbose logging")
-	fs.BoolVar(&opts.Verbose, "v", false, "Enable verbose logging (shorthand)")
-	fs.BoolVar(&opts.NoColor, "no-color", false, "Disable color and ANSI styling")
-	fs.StringVar(&opts.CacheDir, "cache-dir", "", "Custom cache directory")
-	fs.BoolVar(&showVersion, "version", false, "Print version information")
-	fs.BoolVar(&showVersion, "V", false, "Print version information (shorthand)")
-	fs.BoolVar(&showHelp, "help", false, "Show help information")
-	fs.BoolVar(&showHelp, "h", false, "Show help information (shorthand)")
+	fs.BoolVar(&inv.jsonFlag, "json", false, "Output in JSON format")
+	fs.BoolVar(&inv.rawFlag, "raw", false, "Output in raw format")
+	fs.StringVar(&inv.opts.Config, "config", "", "Path to custom config file")
+	fs.BoolVar(&inv.opts.Verbose, "verbose", false, "Enable verbose logging")
+	fs.BoolVar(&inv.opts.Verbose, "v", false, "Enable verbose logging (shorthand)")
+	fs.BoolVar(&inv.opts.NoColor, "no-color", false, "Disable color and ANSI styling")
+	fs.StringVar(&inv.opts.CacheDir, "cache-dir", "", "Custom cache directory")
+	fs.BoolVar(&inv.showVersion, "version", false, "Print version information")
+	fs.BoolVar(&inv.showVersion, "V", false, "Print version information (shorthand)")
+	fs.BoolVar(&inv.showHelp, "help", false, "Show help information")
+	fs.BoolVar(&inv.showHelp, "h", false, "Show help information (shorthand)")
 
-	fs.Usage = func() {
-		PrintGlobalHelp(stdout)
+	globalArgs, cmdName, cmdArgs, code := splitGlobalArgs(args, stderr)
+	if code != ExitSuccess {
+		return inv, code
 	}
+	inv.cmdName = cmdName
+	inv.cmdArgs = cmdArgs
 
-	var globalArgs []string
-	var cmdName string
-	var cmdArgs []string
+	if err := fs.Parse(globalArgs); err != nil {
+		return inv, ExitUsage
+	}
+	return inv, ExitSuccess
+}
 
+// splitGlobalArgs separates leading global flags from the subcommand.
+func splitGlobalArgs(args []string, stderr io.Writer) (globalArgs []string, cmdName string, cmdArgs []string, code int) {
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if arg == "--" {
@@ -591,141 +638,139 @@ func Run(args []string, stdout, stderr io.Writer) int {
 				cmdName = args[i+1]
 				cmdArgs = args[i+2:]
 			}
-			break
+			return globalArgs, cmdName, cmdArgs, ExitSuccess
 		}
-		if strings.HasPrefix(arg, "-") {
-			globalArgs = append(globalArgs, arg)
-			if arg == "--config" || arg == "-config" || arg == "--cache-dir" || arg == "-cache-dir" {
-				if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") && (!isSubcommandName(args[i+1]) || i+2 < len(args)) {
-					i++
-					globalArgs = append(globalArgs, args[i])
-				} else {
-					_, _ = fmt.Fprintf(stderr, "flag needs an argument: %s\n", arg)
-					return ExitUsage
-				}
-			}
-		} else {
-			cmdName = arg
-			cmdArgs = args[i+1:]
-			break
+		if !strings.HasPrefix(arg, "-") {
+			return globalArgs, arg, args[i+1:], ExitSuccess
 		}
-	}
 
-	if err := fs.Parse(globalArgs); err != nil {
-		return ExitUsage
+		globalArgs = append(globalArgs, arg)
+		if !flagTakesValue(arg) {
+			continue
+		}
+		if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") && (!isSubcommandName(args[i+1]) || i+2 < len(args)) {
+			i++
+			globalArgs = append(globalArgs, args[i])
+			continue
+		}
+		_, _ = fmt.Fprintf(stderr, "flag needs an argument: %s\n", arg)
+		return nil, "", nil, ExitUsage
 	}
+	return globalArgs, cmdName, cmdArgs, ExitSuccess
+}
 
-	if showVersion || cmdName == "version" {
+func flagTakesValue(arg string) bool {
+	return arg == "--config" || arg == "-config" || arg == "--cache-dir" || arg == "-cache-dir"
+}
+
+// handleInformationalCommand serves version and help before any app is built.
+// The bool result reports whether the command was handled.
+func handleInformationalCommand(inv invocation, stdout io.Writer) (int, bool) {
+	if inv.showVersion || inv.cmdName == "version" {
 		_, _ = fmt.Fprintf(stdout, "dojo version %s\n", version.Get())
-		return ExitSuccess
+		return ExitSuccess, true
 	}
 
-	if cmdName == "help" && len(cmdArgs) > 0 {
-		if PrintSubcommandHelp(stdout, cmdArgs[0], cmdArgs[1:]) {
-			return ExitSuccess
+	if inv.cmdName == "help" && len(inv.cmdArgs) > 0 {
+		if PrintSubcommandHelp(stdout, inv.cmdArgs[0], inv.cmdArgs[1:]) {
+			return ExitSuccess, true
 		}
 	}
 
-	if showHelp || cmdName == "" || cmdName == "help" {
-		if cmdName == "" && opts.Verbose && !showHelp {
+	if inv.showHelp || inv.cmdName == "" || inv.cmdName == "help" {
+		if inv.cmdName == "" && inv.opts.Verbose && !inv.showHelp {
 			_, _ = fmt.Fprintf(stdout, "dojo version %s\n", version.Get())
-			return ExitSuccess
+			return ExitSuccess, true
 		}
 		PrintGlobalHelp(stdout)
-		if cmdName == "" && !showHelp {
-			return ExitUsage
+		if inv.cmdName == "" && !inv.showHelp {
+			return ExitUsage, true
 		}
-		return ExitSuccess
+		return ExitSuccess, true
 	}
 
-	if hasHelpFlag(cmdName, cmdArgs) {
-		if PrintSubcommandHelp(stdout, cmdName, cmdArgs) {
-			return ExitSuccess
+	if hasHelpFlag(inv.cmdName, inv.cmdArgs) {
+		if PrintSubcommandHelp(stdout, inv.cmdName, inv.cmdArgs) {
+			return ExitSuccess, true
 		}
 	}
+	return ExitSuccess, false
+}
 
-	if jsonFlag {
-		opts.Mode = OutputModeJSON
-	} else if rawFlag {
-		opts.Mode = OutputModeRaw
-	}
-
+func validateCommandName(cmdName string, stderr io.Writer) int {
 	switch cmdName {
 	case "list", "ls", "find", "search", "show", "info", "load", "get", "toc",
 		"learn", "install", "add", "forget", "unlearn", "update", "upgrade", "self-update",
 		"sync", "sila", "profile", "init", "scaffold", "doctor", "lint", "audit", "mcp", "serve",
 		"completion", "__complete",
 		"status", "catalog", "catalogs", "telemetry", "run", "exec":
+		return ExitSuccess
+	}
+
+	validCommands := []string{
+		"list", "find", "show", "toc", "load", "learn", "sync", "sila", "profile", "init", "doctor", "mcp",
+		"completion", "forget", "update", "upgrade", "status", "catalog", "telemetry", "run", "version", "help",
+	}
+	_, _ = fmt.Fprintf(stderr, "error: unknown command %q.\n", cmdName)
+	if suggs := search.Suggest(cmdName, validCommands, 2); len(suggs) > 0 {
+		_, _ = fmt.Fprintln(stderr, "\nDid you mean:")
+		for _, s := range suggs {
+			_, _ = fmt.Fprintf(stderr, "  - dojo %s\n", s)
+		}
+	}
+	_, _ = fmt.Fprintln(stderr, "\nRun 'dojo --help' for available commands and usage.")
+	return ExitUsage
+}
+
+// newCommandApp builds the App, falling back to local-only catalog discovery
+// for offline-capable commands when the remote catalog fails.
+func newCommandApp(cmdName string, cmdArgs []string, opts GlobalOptions, stdout, stderr io.Writer) (*App, int) {
+	if isLocalOnlyCommand(cmdName, cmdArgs) {
+		return newLocalApp(opts, stdout, stderr), ExitSuccess
+	}
+
+	app, err := NewApp(opts, stdout, stderr)
+	if err == nil {
+		return app, ExitSuccess
+	}
+
+	switch cmdName {
+	case "init", "scaffold", "sync", "sila", "doctor", "lint", "audit", "profile", "__complete", "upgrade", "self-update":
+		return newLocalApp(opts, stdout, stderr), ExitSuccess
 	default:
-		validCommands := []string{
-			"list", "find", "show", "toc", "load", "learn", "sync", "sila", "profile", "init", "doctor", "mcp",
-			"completion", "forget", "update", "upgrade", "status", "catalog", "telemetry", "run", "version", "help",
-		}
-		_, _ = fmt.Fprintf(stderr, "error: unknown command %q.\n", cmdName)
-		suggs := search.Suggest(cmdName, validCommands, 2)
-		if len(suggs) > 0 {
-			_, _ = fmt.Fprintln(stderr, "\nDid you mean:")
-			for _, s := range suggs {
-				_, _ = fmt.Fprintf(stderr, "  - dojo %s\n", s)
-			}
-		}
-		_, _ = fmt.Fprintln(stderr, "\nRun 'dojo --help' for available commands and usage.")
-		return ExitUsage
+		_, _ = fmt.Fprintf(stderr, "error: %v\n", err)
+		return nil, MapErrorToExitCode(err)
 	}
+}
 
-	if cmdName == "completion" {
-		app := &App{Stdout: stdout, Stderr: stderr, Options: opts}
-		return app.RunCompletion(cmdArgs)
+func newLocalApp(opts GlobalOptions, stdout, stderr io.Writer) *App {
+	localCat, _ := catalog.NewCatalog(catalog.WithRemoteDisabled(), catalog.WithLocalDiscovery(true))
+	cfg, _ := config.Load(opts.Config)
+	return &App{
+		Store:      localCat,
+		Searcher:   search.NewEngine(),
+		Stdout:     stdout,
+		Stderr:     stderr,
+		Options:    opts,
+		HTTPClient: &http.Client{Timeout: 30 * time.Second},
+		Config:     cfg,
 	}
+}
 
-	isLocalOnlyCmd := false
+// isLocalOnlyCommand reports whether a command can run without remote access.
+func isLocalOnlyCommand(cmdName string, cmdArgs []string) bool {
 	switch cmdName {
 	case "init", "scaffold", "sync", "sila", "doctor", "lint", "audit", "telemetry", "upgrade", "self-update":
-		isLocalOnlyCmd = true
+		return true
 	case "profile":
 		if len(cmdArgs) == 0 || cmdArgs[0] == "link" || cmdArgs[0] == "unlink" || cmdArgs[0] == "export" || cmdArgs[0] == "save" {
-			isLocalOnlyCmd = true
+			return true
 		}
 	}
+	return false
+}
 
-	var app *App
-	var err error
-	if isLocalOnlyCmd {
-		localCat, _ := catalog.NewCatalog(catalog.WithRemoteDisabled(), catalog.WithLocalDiscovery(true))
-		cfg, _ := config.Load(opts.Config)
-		app = &App{
-			Store:      localCat,
-			Searcher:   search.NewEngine(),
-			Stdout:     stdout,
-			Stderr:     stderr,
-			Options:    opts,
-			HTTPClient: &http.Client{Timeout: 30 * time.Second},
-			Config:     cfg,
-		}
-	} else {
-		app, err = NewApp(opts, stdout, stderr)
-		if err != nil {
-			// Allow local/offline commands to run with local discovery only if remote catalog is unreachable
-			switch cmdName {
-			case "init", "scaffold", "sync", "sila", "doctor", "lint", "audit", "profile", "__complete", "upgrade", "self-update":
-				localCat, _ := catalog.NewCatalog(catalog.WithRemoteDisabled(), catalog.WithLocalDiscovery(true))
-				cfg, _ := config.Load(opts.Config)
-				app = &App{
-					Store:      localCat,
-					Searcher:   search.NewEngine(),
-					Stdout:     stdout,
-					Stderr:     stderr,
-					Options:    opts,
-					HTTPClient: &http.Client{Timeout: 30 * time.Second},
-					Config:     cfg,
-				}
-			default:
-				_, _ = fmt.Fprintf(stderr, "error: %v\n", err)
-				return MapErrorToExitCode(err)
-			}
-		}
-	}
-
+func dispatchCommand(app *App, cmdName string, cmdArgs []string) int {
 	switch cmdName {
 	case "list", "ls":
 		return app.RunList(cmdArgs)

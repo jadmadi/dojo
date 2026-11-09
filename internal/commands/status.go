@@ -20,307 +20,316 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 
 	"github.com/jadmadi/dojo/internal/state"
 )
 
+// statusOptions holds the parsed flags for `dojo status`.
+type statusOptions struct {
+	global bool
+	json   bool
+	raw    bool
+}
+
+// statusData is the filtered snapshot the report renders.
+type statusData struct {
+	wsDir           string
+	wsInstalled     map[string]state.SkillRecord
+	wsForgotten     map[string]state.SkillRecord
+	globalInstalled map[string]state.SkillRecord
+	globalForgotten map[string]state.SkillRecord
+	history         map[string]*state.HistoryRecord
+	missingTargets  []string
+}
+
+// statusOutput is the JSON payload.
+type statusOutput struct {
+	Workspace       string                          `json:"workspace,omitempty"`
+	WorkspaceSkills map[string]state.SkillRecord    `json:"workspace_skills,omitempty"`
+	GlobalSkills    map[string]state.SkillRecord    `json:"global_skills"`
+	ForgottenSkills map[string]state.SkillRecord    `json:"forgotten_skills,omitempty"`
+	History         map[string]*state.HistoryRecord `json:"history,omitempty"`
+}
+
 func (a *App) RunStatus(args []string) int {
-	fs := flag.NewFlagSet("status", flag.ContinueOnError)
-	fs.SetOutput(a.Stderr)
-	var globalFlag, jsonFlag, rawFlag bool
-
-	fs.BoolVar(&globalFlag, "global", false, "Show global skills status only")
-	fs.BoolVar(&globalFlag, "g", false, "Show global skills status only (shorthand)")
-	fs.BoolVar(&jsonFlag, "json", false, "Output in JSON format")
-	fs.BoolVar(&rawFlag, "raw", false, "Output in raw format")
-
-	posArgs, err := parseFlagsWithArgs(fs, args)
-	if err != nil {
+	opts, posArgs, ok := a.parseStatusArgs(args)
+	if !ok {
 		return ExitUsage
 	}
 	posArgs = a.resolveSkillSpecs(posArgs)
 
+	data := a.collectStatus(posArgs, opts.global)
+	switch a.resolveMode(opts.json, opts.raw) {
+	case OutputModeJSON:
+		a.writeStatusJSON(data, opts.global)
+	case OutputModeRaw:
+		writeStatusRaw(a.Stdout, data, opts.global)
+	default:
+		a.writeStatusHuman(data, opts.global)
+	}
+
+	if len(data.missingTargets) > 0 {
+		if a.resolveMode(opts.json, opts.raw) == OutputModeHuman {
+			for _, name := range data.missingTargets {
+				_, _ = fmt.Fprintf(a.Stderr, "⚠ Skill %q has no installation or usage history.\n", name)
+			}
+		}
+		return ExitNotFound
+	}
+	return ExitSuccess
+}
+
+func (a *App) parseStatusArgs(args []string) (statusOptions, []string, bool) {
+	var opts statusOptions
+	fs := flag.NewFlagSet("status", flag.ContinueOnError)
+	fs.SetOutput(a.Stderr)
+
+	fs.BoolVar(&opts.global, "global", false, "Show global skills status only")
+	fs.BoolVar(&opts.global, "g", false, "Show global skills status only (shorthand)")
+	fs.BoolVar(&opts.json, "json", false, "Output in JSON format")
+	fs.BoolVar(&opts.raw, "raw", false, "Output in raw format")
+
+	posArgs, err := parseFlagsWithArgs(fs, args)
+	if err != nil {
+		return opts, nil, false
+	}
+	return opts, posArgs, true
+}
+
+func (a *App) collectStatus(targetNames []string, globalOnly bool) statusData {
 	st := a.loadState()
 	wsDir, _ := os.Getwd()
 
-	wsInstalled := st.GetInstalledSkills(state.ScopeWorkspace, wsDir)
-	wsForgotten := st.GetForgottenSkills(state.ScopeWorkspace, wsDir)
-	globalInstalled := st.GetInstalledSkills(state.ScopeGlobal, "")
-	globalForgotten := st.GetForgottenSkills(state.ScopeGlobal, "")
+	data := statusData{
+		wsDir:           wsDir,
+		wsInstalled:     st.GetInstalledSkills(state.ScopeWorkspace, wsDir),
+		wsForgotten:     st.GetForgottenSkills(state.ScopeWorkspace, wsDir),
+		globalInstalled: st.GetInstalledSkills(state.ScopeGlobal, ""),
+		globalForgotten: st.GetForgottenSkills(state.ScopeGlobal, ""),
+		history:         st.History,
+	}
 
-	targetNames := make(map[string]bool)
+	targets := make(map[string]bool, len(targetNames))
+	for _, name := range targetNames {
+		targets[name] = true
+	}
+	if len(targets) > 0 {
+		data.wsInstalled = filterSkillRecords(data.wsInstalled, targets)
+		data.wsForgotten = filterSkillRecords(data.wsForgotten, targets)
+		data.globalInstalled = filterSkillRecords(data.globalInstalled, targets)
+		data.globalForgotten = filterSkillRecords(data.globalForgotten, targets)
+		data.history = filterHistory(data.history, targets)
+	}
+
+	data.missingTargets = findMissingTargets(targetNames, data, globalOnly)
+	return data
+}
+
+func filterSkillRecords(skills map[string]state.SkillRecord, targets map[string]bool) map[string]state.SkillRecord {
+	if len(targets) == 0 {
+		return skills
+	}
+	res := make(map[string]state.SkillRecord)
+	for name, rec := range skills {
+		if targets[name] {
+			res[name] = rec
+		}
+	}
+	return res
+}
+
+func filterHistory(history map[string]*state.HistoryRecord, targets map[string]bool) map[string]*state.HistoryRecord {
+	if len(targets) == 0 || history == nil {
+		return history
+	}
+	res := make(map[string]*state.HistoryRecord)
+	for name, rec := range history {
+		if targets[name] {
+			res[name] = rec
+		}
+	}
+	return res
+}
+
+func findMissingTargets(posArgs []string, data statusData, globalOnly bool) []string {
+	var missing []string
 	for _, name := range posArgs {
-		targetNames[name] = true
-	}
-
-	filterSkills := func(skills map[string]state.SkillRecord) map[string]state.SkillRecord {
-		if len(targetNames) == 0 {
-			return skills
+		_, inGlobal := data.globalInstalled[name]
+		_, inGlobalForgotten := data.globalForgotten[name]
+		_, inHistory := data.history[name]
+		inWorkspace, inWorkspaceForgotten := false, false
+		if !globalOnly {
+			_, inWorkspace = data.wsInstalled[name]
+			_, inWorkspaceForgotten = data.wsForgotten[name]
 		}
-		res := make(map[string]state.SkillRecord)
-		for name, rec := range skills {
-			if targetNames[name] {
-				res[name] = rec
-			}
-		}
-		return res
-	}
-
-	wsInstalled = filterSkills(wsInstalled)
-	wsForgotten = filterSkills(wsForgotten)
-	globalInstalled = filterSkills(globalInstalled)
-	globalForgotten = filterSkills(globalForgotten)
-
-	filteredHistory := st.History
-	if len(targetNames) > 0 && st.History != nil {
-		filteredHistory = make(map[string]*state.HistoryRecord)
-		for name, rec := range st.History {
-			if targetNames[name] {
-				filteredHistory[name] = rec
-			}
+		if !inGlobal && !inGlobalForgotten && !inHistory && !inWorkspace && !inWorkspaceForgotten {
+			missing = append(missing, name)
 		}
 	}
+	return missing
+}
 
-	var missingTargets []string
-	if len(posArgs) > 0 {
-		for _, name := range posArgs {
-			_, inGInst := globalInstalled[name]
-			_, inGForg := globalForgotten[name]
-			_, inHist := filteredHistory[name]
-			inWSInst := false
-			inWSForg := false
-			if !globalFlag {
-				_, inWSInst = wsInstalled[name]
-				_, inWSForg = wsForgotten[name]
-			}
-			if !inGInst && !inGForg && !inHist && !inWSInst && !inWSForg {
-				missingTargets = append(missingTargets, name)
-			}
-		}
+func (a *App) writeStatusJSON(data statusData, globalOnly bool) {
+	out := statusOutput{
+		GlobalSkills:    data.globalInstalled,
+		ForgottenSkills: combinedForgotten(data, globalOnly),
+		History:         data.history,
+	}
+	if !globalOnly {
+		out.Workspace = data.wsDir
+		out.WorkspaceSkills = data.wsInstalled
 	}
 
-	combinedForgotten := make(map[string]state.SkillRecord)
-	for k, v := range globalForgotten {
-		combinedForgotten[k] = v
+	enc := json.NewEncoder(a.Stdout)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(out)
+}
+
+func combinedForgotten(data statusData, globalOnly bool) map[string]state.SkillRecord {
+	combined := make(map[string]state.SkillRecord)
+	for k, v := range data.globalForgotten {
+		combined[k] = v
 	}
-	if !globalFlag {
-		for k, v := range wsForgotten {
-			combinedForgotten[k] = v
+	if !globalOnly {
+		for k, v := range data.wsForgotten {
+			combined[k] = v
 		}
 	}
+	return combined
+}
 
-	type StatusOutput struct {
-		Workspace       string                          `json:"workspace,omitempty"`
-		WorkspaceSkills map[string]state.SkillRecord    `json:"workspace_skills,omitempty"`
-		GlobalSkills    map[string]state.SkillRecord    `json:"global_skills"`
-		ForgottenSkills map[string]state.SkillRecord    `json:"forgotten_skills,omitempty"`
-		History         map[string]*state.HistoryRecord `json:"history,omitempty"`
+func writeStatusRaw(w interface{ Write([]byte) (int, error) }, data statusData, globalOnly bool) {
+	if !globalOnly {
+		writeRawRecords(w, "workspace", "installed", data.wsInstalled)
+		writeRawRecords(w, "workspace", "forgotten", data.wsForgotten)
+	}
+	writeRawRecords(w, "global", "installed", data.globalInstalled)
+	writeRawRecords(w, "global", "forgotten", data.globalForgotten)
+}
+
+func writeRawRecords(w interface{ Write([]byte) (int, error) }, scope, status string, records map[string]state.SkillRecord) {
+	names := make([]string, 0, len(records))
+	for n := range records {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		rec := records[n]
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+			sanitizeTSVField(scope),
+			sanitizeTSVField(rec.Name),
+			sanitizeTSVField(rec.Version),
+			sanitizeTSVField(status),
+			sanitizeTSVField(rec.Origin),
+		)
+	}
+}
+
+func (a *App) writeStatusHuman(data statusData, globalOnly bool) {
+	_, _ = fmt.Fprintf(a.Stdout, "Dojo Status\n")
+	if !globalOnly {
+		_, _ = fmt.Fprintf(a.Stdout, "Workspace: %s\n\n", data.wsDir)
+		writeHumanSkillGroup(a.Stdout, "Workspace Skills", data.wsInstalled)
+	}
+	_, _ = fmt.Fprintf(a.Stdout, "\nGlobal Skills (%d):\n", len(data.globalInstalled))
+	writeHumanSkillRows(a.Stdout, data.globalInstalled)
+
+	writeHumanForgotten(a.Stdout, data, globalOnly)
+	writeHumanHistory(a.Stdout, data.history)
+}
+
+func writeHumanSkillGroup(w interface{ Write([]byte) (int, error) }, title string, skills map[string]state.SkillRecord) {
+	_, _ = fmt.Fprintf(w, "%s (%d):\n", title, len(skills))
+	writeHumanSkillRows(w, skills)
+}
+
+func writeHumanSkillRows(w interface{ Write([]byte) (int, error) }, skills map[string]state.SkillRecord) {
+	if len(skills) == 0 {
+		_, _ = fmt.Fprintf(w, "  (none)\n")
+		return
+	}
+	names := make([]string, 0, len(skills))
+	for n := range skills {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		rec := skills[n]
+		ver := rec.Version
+		if ver == "" {
+			ver = "unversioned"
+		}
+		if rec.Origin == state.OriginCustom {
+			_, _ = fmt.Fprintf(w, "  • %-20s %-12s (%d files, custom - read-only to dojo)\n", rec.Name, ver, len(rec.Files))
+			continue
+		}
+		_, _ = fmt.Fprintf(w, "  ✓ %-20s %-12s (%d files, installed %s)\n", rec.Name, ver, len(rec.Files), rec.InstalledAt.Format("2006-01-02"))
+	}
+}
+
+func writeHumanForgotten(w interface{ Write([]byte) (int, error) }, data statusData, globalOnly bool) {
+	count := len(data.globalForgotten)
+	if !globalOnly {
+		count += len(data.wsForgotten)
+	}
+	if count == 0 {
+		return
 	}
 
-	out := StatusOutput{
-		GlobalSkills:    globalInstalled,
-		ForgottenSkills: combinedForgotten,
-		History:         filteredHistory,
+	_, _ = fmt.Fprintf(w, "\nForgotten Skills:\n")
+	if !globalOnly {
+		writeForgottenRows(w, data.wsForgotten, "workspace")
 	}
-	if !globalFlag {
-		out.Workspace = wsDir
-		out.WorkspaceSkills = wsInstalled
+	writeForgottenRows(w, data.globalForgotten, "global")
+}
+
+func writeForgottenRows(w interface{ Write([]byte) (int, error) }, skills map[string]state.SkillRecord, scope string) {
+	names := make([]string, 0, len(skills))
+	for n := range skills {
+		names = append(names, n)
 	}
-
-	mode := a.resolveMode(jsonFlag, rawFlag)
-	switch mode {
-	case OutputModeJSON:
-		enc := json.NewEncoder(a.Stdout)
-		enc.SetIndent("", "  ")
-		_ = enc.Encode(out)
-		if len(missingTargets) > 0 {
-			return ExitNotFound
+	sort.Strings(names)
+	for _, n := range names {
+		rec := skills[n]
+		uninstalled := ""
+		if rec.UninstalledAt != nil {
+			uninstalled = rec.UninstalledAt.Format("2006-01-02")
 		}
-		return ExitSuccess
-	case OutputModeRaw:
-		if !globalFlag {
-			var wsNames []string
-			for n := range wsInstalled {
-				wsNames = append(wsNames, n)
-			}
-			sort.Strings(wsNames)
-			for _, n := range wsNames {
-				rec := wsInstalled[n]
-				_, _ = fmt.Fprintf(a.Stdout, "workspace\t%s\t%s\tinstalled\t%s\n",
-					sanitizeTSVField(rec.Name),
-					sanitizeTSVField(rec.Version),
-					sanitizeTSVField(rec.Origin),
-				)
-			}
-			var wsForgNames []string
-			for n := range wsForgotten {
-				wsForgNames = append(wsForgNames, n)
-			}
-			sort.Strings(wsForgNames)
-			for _, n := range wsForgNames {
-				rec := wsForgotten[n]
-				_, _ = fmt.Fprintf(a.Stdout, "workspace\t%s\t%s\tforgotten\t%s\n",
-					sanitizeTSVField(rec.Name),
-					sanitizeTSVField(rec.Version),
-					sanitizeTSVField(rec.Origin),
-				)
-			}
-		}
-		var gNames []string
-		for n := range globalInstalled {
-			gNames = append(gNames, n)
-		}
-		sort.Strings(gNames)
-		for _, n := range gNames {
-			rec := globalInstalled[n]
-			_, _ = fmt.Fprintf(a.Stdout, "global\t%s\t%s\tinstalled\t%s\n",
-				sanitizeTSVField(rec.Name),
-				sanitizeTSVField(rec.Version),
-				sanitizeTSVField(rec.Origin),
-			)
-		}
-		var gForgNames []string
-		for n := range globalForgotten {
-			gForgNames = append(gForgNames, n)
-		}
-		sort.Strings(gForgNames)
-		for _, n := range gForgNames {
-			rec := globalForgotten[n]
-			_, _ = fmt.Fprintf(a.Stdout, "global\t%s\t%s\tforgotten\t%s\n",
-				sanitizeTSVField(rec.Name),
-				sanitizeTSVField(rec.Version),
-				sanitizeTSVField(rec.Origin),
-			)
-		}
-		if len(missingTargets) > 0 {
-			return ExitNotFound
-		}
-		return ExitSuccess
-	default: // OutputModeHuman
-		_, _ = fmt.Fprintf(a.Stdout, "Dojo Status\n")
-		if !globalFlag {
-			_, _ = fmt.Fprintf(a.Stdout, "Workspace: %s\n\n", wsDir)
-
-			// Workspace Installed
-			_, _ = fmt.Fprintf(a.Stdout, "Workspace Skills (%d):\n", len(wsInstalled))
-			if len(wsInstalled) == 0 {
-				_, _ = fmt.Fprintf(a.Stdout, "  (none)\n")
-			} else {
-				var names []string
-				for n := range wsInstalled {
-					names = append(names, n)
-				}
-				sort.Strings(names)
-				for _, n := range names {
-					rec := wsInstalled[n]
-					ver := rec.Version
-					if ver == "" {
-						ver = "unversioned"
-					}
-					if rec.Origin == state.OriginCustom {
-						_, _ = fmt.Fprintf(a.Stdout, "  • %-20s %-12s (%d files, custom - read-only to dojo)\n", rec.Name, ver, len(rec.Files))
-					} else {
-						_, _ = fmt.Fprintf(a.Stdout, "  ✓ %-20s %-12s (%d files, installed %s)\n", rec.Name, ver, len(rec.Files), rec.InstalledAt.Format("2006-01-02"))
-					}
-				}
-			}
-		}
-
-		// Global Installed
-		_, _ = fmt.Fprintf(a.Stdout, "\nGlobal Skills (%d):\n", len(globalInstalled))
-		if len(globalInstalled) == 0 {
-			_, _ = fmt.Fprintf(a.Stdout, "  (none)\n")
-		} else {
-			var names []string
-			for n := range globalInstalled {
-				names = append(names, n)
-			}
-			sort.Strings(names)
-			for _, n := range names {
-				rec := globalInstalled[n]
-				ver := rec.Version
-				if ver == "" {
-					ver = "unversioned"
-				}
-				if rec.Origin == state.OriginCustom {
-					_, _ = fmt.Fprintf(a.Stdout, "  • %-20s %-12s (%d files, custom - read-only to dojo)\n", rec.Name, ver, len(rec.Files))
-				} else {
-					_, _ = fmt.Fprintf(a.Stdout, "  ✓ %-20s %-12s (%d files, installed %s)\n", rec.Name, ver, len(rec.Files), rec.InstalledAt.Format("2006-01-02"))
-				}
-			}
-		}
-
-		// Forgotten
-		forgottenCount := len(globalForgotten)
-		if !globalFlag {
-			forgottenCount += len(wsForgotten)
-		}
-		if forgottenCount > 0 {
-			_, _ = fmt.Fprintf(a.Stdout, "\nForgotten Skills:\n")
-			if !globalFlag {
-				var wsForgNames []string
-				for n := range wsForgotten {
-					wsForgNames = append(wsForgNames, n)
-				}
-				sort.Strings(wsForgNames)
-				for _, n := range wsForgNames {
-					rec := wsForgotten[n]
-					uninst := ""
-					if rec.UninstalledAt != nil {
-						uninst = rec.UninstalledAt.Format("2006-01-02")
-					}
-					_, _ = fmt.Fprintf(a.Stdout, "  ✗ %-20s (workspace, uninstalled %s)\n", rec.Name, uninst)
-				}
-			}
-			var gForgNames []string
-			for n := range globalForgotten {
-				gForgNames = append(gForgNames, n)
-			}
-			sort.Strings(gForgNames)
-			for _, n := range gForgNames {
-				rec := globalForgotten[n]
-				uninst := ""
-				if rec.UninstalledAt != nil {
-					uninst = rec.UninstalledAt.Format("2006-01-02")
-				}
-				_, _ = fmt.Fprintf(a.Stdout, "  ✗ %-20s (global, uninstalled %s)\n", rec.Name, uninst)
-			}
-		}
-
-		// Skill Usage History
-		if len(filteredHistory) > 0 {
-			_, _ = fmt.Fprintf(a.Stdout, "\nSkill Usage History:\n")
-			var histNames []string
-			for n := range filteredHistory {
-				histNames = append(histNames, n)
-			}
-			sort.Strings(histNames)
-			for _, n := range histNames {
-				h := filteredHistory[n]
-				details := fmt.Sprintf("%d loads", h.LoadCount)
-				if h.PageLoadCount > 0 {
-					details += fmt.Sprintf(", +%d pages", h.PageLoadCount)
-				}
-				if h.SubpathLoadCount > 0 {
-					details += fmt.Sprintf(", +%d subpaths", h.SubpathLoadCount)
-				}
-				if h.RunCount > 0 {
-					details += fmt.Sprintf(", %d runs", h.RunCount)
-				}
-				if h.LearnCount > 0 {
-					details += fmt.Sprintf(", %d learns", h.LearnCount)
-				}
-				_, _ = fmt.Fprintf(a.Stdout, "  • %-20s (%s, %s)\n", n, h.LastSeenAt.Format("2006-01-02 15:04"), details)
-			}
-		}
-
-		if len(missingTargets) > 0 {
-			for _, name := range missingTargets {
-				_, _ = fmt.Fprintf(a.Stderr, "⚠ Skill %q has no installation or usage history.\n", name)
-			}
-			return ExitNotFound
-		}
-
-		return ExitSuccess
+		_, _ = fmt.Fprintf(w, "  ✗ %-20s (%s, uninstalled %s)\n", rec.Name, scope, uninstalled)
 	}
+}
+
+func writeHumanHistory(w interface{ Write([]byte) (int, error) }, history map[string]*state.HistoryRecord) {
+	if len(history) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "\nSkill Usage History:\n")
+
+	names := make([]string, 0, len(history))
+	for n := range history {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		_, _ = fmt.Fprintf(w, "  • %-20s (%s, %s)\n", n, history[n].LastSeenAt.Format("2006-01-02 15:04"), historyDetails(history[n]))
+	}
+}
+
+func historyDetails(h *state.HistoryRecord) string {
+	var parts []string
+	parts = append(parts, fmt.Sprintf("%d loads", h.LoadCount))
+	if h.PageLoadCount > 0 {
+		parts = append(parts, fmt.Sprintf("+%d pages", h.PageLoadCount))
+	}
+	if h.SubpathLoadCount > 0 {
+		parts = append(parts, fmt.Sprintf("+%d subpaths", h.SubpathLoadCount))
+	}
+	if h.RunCount > 0 {
+		parts = append(parts, fmt.Sprintf("%d runs", h.RunCount))
+	}
+	if h.LearnCount > 0 {
+		parts = append(parts, fmt.Sprintf("%d learns", h.LearnCount))
+	}
+	return strings.Join(parts, ", ")
 }
