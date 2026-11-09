@@ -455,10 +455,18 @@ func ConvertFromCursorMDC(skillName string, mdcBytes []byte, existingCanonical [
 // (.antigravity/skills, .gemini/skills, .claude/skills, .opencode/skills, .sila/skills,
 // .cursor/rules/*.mdc, .windsurf/rules/*.md) back into the canonical .agents/skills/<name> store.
 func ReconcileHarnesses(rootDir string) []ProjectionResult {
-	var reconciled []ProjectionResult
 	canonicalBase := filepath.Join(rootDir, ".agents", "skills")
 
-	// 1. Directory-based harnesses
+	var reconciled []ProjectionResult
+	reconciled = append(reconciled, reconcileDirHarnesses(rootDir, canonicalBase)...)
+	reconciled = append(reconciled, reconcileCursorRules(rootDir, canonicalBase)...)
+	reconciled = append(reconciled, reconcileWindsurfRules(rootDir, canonicalBase)...)
+	return reconciled
+}
+
+// reconcileDirHarnesses imports and updates skills stored in per-harness
+// directories that mirror the canonical SKILL.md layout.
+func reconcileDirHarnesses(rootDir, canonicalBase string) []ProjectionResult {
 	dirSources := []struct {
 		harness string
 		relPath string
@@ -470,6 +478,7 @@ func ReconcileHarnesses(rootDir string) []ProjectionResult {
 		{"sila", filepath.Join(".sila", "skills")},
 	}
 
+	var reconciled []ProjectionResult
 	for _, src := range dirSources {
 		hBase := filepath.Join(rootDir, src.relPath)
 		entries, err := os.ReadDir(hBase)
@@ -477,186 +486,231 @@ func ReconcileHarnesses(rootDir string) []ProjectionResult {
 			continue
 		}
 		for _, e := range entries {
-			skillName := e.Name()
-			hSkillDir := filepath.Join(hBase, skillName)
-			hSkillMD := filepath.Join(hSkillDir, "SKILL.md")
-			hInfo, err := os.Stat(hSkillMD)
-			if err != nil {
-				continue
-			}
-
-			canSkillDir := filepath.Join(canonicalBase, skillName)
-			canSkillMD := filepath.Join(canSkillDir, "SKILL.md")
-			canInfo, canErr := os.Stat(canSkillMD)
-
-			if canErr != nil {
-				// Orphan skill created directly in a harness -> import into canonical .agents/skills
-				if err := copyDirRecursive(hSkillDir, canSkillDir); err == nil {
-					reconciled = append(reconciled, ProjectionResult{
-						Skill:   skillName,
-						Harness: "agents",
-						Path:    canSkillDir,
-						Method:  "import-from-" + src.harness,
-						Status:  "synced",
-					})
-				}
-				continue
-			}
-
-			// If hSkillDir is a symlink pointing to canSkillDir, they are already identical
-			if linfo, lerr := os.Lstat(hSkillDir); lerr == nil && (linfo.Mode()&os.ModeSymlink != 0) {
-				continue
-			}
-
-			// Copy mode: check if harness SKILL.md was modified more recently than canonical SKILL.md
-			if hInfo.ModTime().After(canInfo.ModTime()) {
-				hBytes, rErr1 := os.ReadFile(hSkillMD)
-				cBytes, rErr2 := os.ReadFile(canSkillMD)
-				if rErr1 == nil && rErr2 == nil && string(hBytes) != string(cBytes) {
-					if err := copyDirRecursive(hSkillDir, canSkillDir); err == nil {
-						reconciled = append(reconciled, ProjectionResult{
-							Skill:   skillName,
-							Harness: "agents",
-							Path:    canSkillDir,
-							Method:  "reconcile-from-" + src.harness,
-							Status:  "synced",
-						})
-					}
-				}
+			if res, ok := reconcileDirSkill(src.harness, hBase, e.Name(), canonicalBase); ok {
+				reconciled = append(reconciled, res)
 			}
 		}
 	}
-
-	// 2. Cursor .mdc rules (.cursor/rules/<name>.mdc)
-	cursorRulesDir := filepath.Join(rootDir, ".cursor", "rules")
-	if entries, err := os.ReadDir(cursorRulesDir); err == nil {
-		for _, e := range entries {
-			if e.IsDir() || !strings.HasSuffix(e.Name(), ".mdc") {
-				continue
-			}
-			skillName := strings.TrimSuffix(e.Name(), ".mdc")
-			if skillName == "" {
-				continue
-			}
-			mdcPath := filepath.Join(cursorRulesDir, e.Name())
-			mdcInfo, sErr := os.Stat(mdcPath)
-			if sErr != nil {
-				continue
-			}
-			mdcBytes, rErr := os.ReadFile(mdcPath)
-			if rErr != nil {
-				continue
-			}
-
-			canSkillDir := filepath.Join(canonicalBase, skillName)
-			canSkillMD := filepath.Join(canSkillDir, "SKILL.md")
-			canInfo, canErr := os.Stat(canSkillMD)
-
-			if canErr != nil {
-				// Brand-new .mdc rule created in Cursor -> import to canonical SKILL.md
-				if mkErr := os.MkdirAll(canSkillDir, 0755); mkErr == nil {
-					converted := ConvertFromCursorMDC(skillName, mdcBytes, nil)
-					if wErr := os.WriteFile(canSkillMD, converted, 0644); wErr == nil {
-						reconciled = append(reconciled, ProjectionResult{
-							Skill:   skillName,
-							Harness: "agents",
-							Path:    canSkillMD,
-							Method:  "import-from-cursor",
-							Status:  "synced",
-						})
-					}
-				}
-				continue
-			}
-
-			if mdcInfo.ModTime().After(canInfo.ModTime()) {
-				canBytes, cErr := os.ReadFile(canSkillMD)
-				if cErr == nil {
-					// Compare bodies to see if the Cursor rule was genuinely edited
-					_, mdcBody, _, _ := catalog.ExtractFrontmatter(mdcBytes)
-					_, canBody, canHasFM, _ := catalog.ExtractFrontmatter(canBytes)
-					if !canHasFM {
-						canBody = canBytes
-					}
-					if strings.TrimSpace(string(mdcBody)) != strings.TrimSpace(string(canBody)) {
-						converted := ConvertFromCursorMDC(skillName, mdcBytes, canBytes)
-						if wErr := os.WriteFile(canSkillMD, converted, 0644); wErr == nil {
-							reconciled = append(reconciled, ProjectionResult{
-								Skill:   skillName,
-								Harness: "agents",
-								Path:    canSkillMD,
-								Method:  "reconcile-from-cursor",
-								Status:  "synced",
-							})
-						}
-					}
-				}
-			}
-		}
-	}
-
-	// 3. Windsurf .md rules (.windsurf/rules/<name>.md)
-	wsRulesDir := filepath.Join(rootDir, ".windsurf", "rules")
-	if entries, err := os.ReadDir(wsRulesDir); err == nil {
-		for _, e := range entries {
-			if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
-				continue
-			}
-			skillName := strings.TrimSuffix(e.Name(), ".md")
-			if skillName == "" {
-				continue
-			}
-			wsPath := filepath.Join(wsRulesDir, e.Name())
-			wsInfo, sErr := os.Stat(wsPath)
-			if sErr != nil {
-				continue
-			}
-			wsBytes, rErr := os.ReadFile(wsPath)
-			if rErr != nil {
-				continue
-			}
-
-			canSkillDir := filepath.Join(canonicalBase, skillName)
-			canSkillMD := filepath.Join(canSkillDir, "SKILL.md")
-			canInfo, canErr := os.Stat(canSkillMD)
-
-			if canErr != nil {
-				if mkErr := os.MkdirAll(canSkillDir, 0755); mkErr == nil {
-					contentToWrite := wsBytes
-					if _, _, hasFM, _ := catalog.ExtractFrontmatter(wsBytes); !hasFM {
-						contentToWrite = ConvertFromCursorMDC(skillName, wsBytes, nil)
-					}
-					if wErr := os.WriteFile(canSkillMD, contentToWrite, 0644); wErr == nil {
-						reconciled = append(reconciled, ProjectionResult{
-							Skill:   skillName,
-							Harness: "agents",
-							Path:    canSkillMD,
-							Method:  "import-from-windsurf",
-							Status:  "synced",
-						})
-					}
-				}
-				continue
-			}
-
-			if wsInfo.ModTime().After(canInfo.ModTime()) {
-				canBytes, cErr := os.ReadFile(canSkillMD)
-				if cErr == nil && strings.TrimSpace(string(wsBytes)) != strings.TrimSpace(string(canBytes)) {
-					if wErr := os.WriteFile(canSkillMD, wsBytes, 0644); wErr == nil {
-						reconciled = append(reconciled, ProjectionResult{
-							Skill:   skillName,
-							Harness: "agents",
-							Path:    canSkillMD,
-							Method:  "reconcile-from-windsurf",
-							Status:  "synced",
-						})
-					}
-				}
-			}
-		}
-	}
-
 	return reconciled
+}
+
+// reconcileDirSkill returns a result when the harness copy was newer and
+// written back to the canonical store.
+func reconcileDirSkill(harnessName, hBase, skillName, canonicalBase string) (ProjectionResult, bool) {
+	hSkillDir := filepath.Join(hBase, skillName)
+	hSkillMD := filepath.Join(hSkillDir, "SKILL.md")
+	hInfo, err := os.Stat(hSkillMD)
+	if err != nil {
+		return ProjectionResult{}, false
+	}
+
+	canSkillDir := filepath.Join(canonicalBase, skillName)
+	canSkillMD := filepath.Join(canSkillDir, "SKILL.md")
+	canInfo, canErr := os.Stat(canSkillMD)
+
+	if canErr != nil {
+		// Orphan skill created directly in a harness -> import into canonical .agents/skills.
+		if err := copyDirRecursive(hSkillDir, canSkillDir); err != nil {
+			return ProjectionResult{}, false
+		}
+		return ProjectionResult{
+			Skill:   skillName,
+			Harness: "agents",
+			Path:    canSkillDir,
+			Method:  "import-from-" + harnessName,
+			Status:  "synced",
+		}, true
+	}
+
+	// If hSkillDir is a symlink pointing to canSkillDir, they are already identical.
+	if linfo, lerr := os.Lstat(hSkillDir); lerr == nil && (linfo.Mode()&os.ModeSymlink != 0) {
+		return ProjectionResult{}, false
+	}
+
+	// Copy mode: check if harness SKILL.md was modified more recently than canonical SKILL.md.
+	if !hInfo.ModTime().After(canInfo.ModTime()) {
+		return ProjectionResult{}, false
+	}
+	hBytes, rErr1 := os.ReadFile(hSkillMD)
+	cBytes, rErr2 := os.ReadFile(canSkillMD)
+	if rErr1 != nil || rErr2 != nil || string(hBytes) == string(cBytes) {
+		return ProjectionResult{}, false
+	}
+	if err := copyDirRecursive(hSkillDir, canSkillDir); err != nil {
+		return ProjectionResult{}, false
+	}
+	return ProjectionResult{
+		Skill:   skillName,
+		Harness: "agents",
+		Path:    canSkillDir,
+		Method:  "reconcile-from-" + harnessName,
+		Status:  "synced",
+	}, true
+}
+
+// reconcileCursorRules imports and updates .cursor/rules/*.mdc files.
+func reconcileCursorRules(rootDir, canonicalBase string) []ProjectionResult {
+	rulesDir := filepath.Join(rootDir, ".cursor", "rules")
+	entries, err := os.ReadDir(rulesDir)
+	if err != nil {
+		return nil
+	}
+
+	var reconciled []ProjectionResult
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".mdc") {
+			continue
+		}
+		if res, ok := reconcileCursorRule(rulesDir, e.Name(), canonicalBase); ok {
+			reconciled = append(reconciled, res)
+		}
+	}
+	return reconciled
+}
+
+func reconcileCursorRule(rulesDir, fileName, canonicalBase string) (ProjectionResult, bool) {
+	skillName := strings.TrimSuffix(fileName, ".mdc")
+	if skillName == "" {
+		return ProjectionResult{}, false
+	}
+	mdcPath := filepath.Join(rulesDir, fileName)
+	mdcInfo, sErr := os.Stat(mdcPath)
+	if sErr != nil {
+		return ProjectionResult{}, false
+	}
+	mdcBytes, rErr := os.ReadFile(mdcPath)
+	if rErr != nil {
+		return ProjectionResult{}, false
+	}
+
+	canSkillDir := filepath.Join(canonicalBase, skillName)
+	canSkillMD := filepath.Join(canSkillDir, "SKILL.md")
+	canInfo, canErr := os.Stat(canSkillMD)
+
+	if canErr != nil {
+		// Brand-new .mdc rule created in Cursor -> import to canonical SKILL.md.
+		if mkErr := os.MkdirAll(canSkillDir, 0755); mkErr != nil {
+			return ProjectionResult{}, false
+		}
+		converted := ConvertFromCursorMDC(skillName, mdcBytes, nil)
+		if wErr := os.WriteFile(canSkillMD, converted, 0644); wErr != nil {
+			return ProjectionResult{}, false
+		}
+		return ProjectionResult{
+			Skill:   skillName,
+			Harness: "agents",
+			Path:    canSkillMD,
+			Method:  "import-from-cursor",
+			Status:  "synced",
+		}, true
+	}
+
+	if !mdcInfo.ModTime().After(canInfo.ModTime()) {
+		return ProjectionResult{}, false
+	}
+	canBytes, cErr := os.ReadFile(canSkillMD)
+	if cErr != nil {
+		return ProjectionResult{}, false
+	}
+
+	// Compare bodies to see if the Cursor rule was genuinely edited.
+	_, mdcBody, _, _ := catalog.ExtractFrontmatter(mdcBytes)
+	_, canBody, canHasFM, _ := catalog.ExtractFrontmatter(canBytes)
+	if !canHasFM {
+		canBody = canBytes
+	}
+	if strings.TrimSpace(string(mdcBody)) == strings.TrimSpace(string(canBody)) {
+		return ProjectionResult{}, false
+	}
+	converted := ConvertFromCursorMDC(skillName, mdcBytes, canBytes)
+	if wErr := os.WriteFile(canSkillMD, converted, 0644); wErr != nil {
+		return ProjectionResult{}, false
+	}
+	return ProjectionResult{
+		Skill:   skillName,
+		Harness: "agents",
+		Path:    canSkillMD,
+		Method:  "reconcile-from-cursor",
+		Status:  "synced",
+	}, true
+}
+
+// reconcileWindsurfRules imports and updates .windsurf/rules/*.md files.
+func reconcileWindsurfRules(rootDir, canonicalBase string) []ProjectionResult {
+	rulesDir := filepath.Join(rootDir, ".windsurf", "rules")
+	entries, err := os.ReadDir(rulesDir)
+	if err != nil {
+		return nil
+	}
+
+	var reconciled []ProjectionResult
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		if res, ok := reconcileWindsurfRule(rulesDir, e.Name(), canonicalBase); ok {
+			reconciled = append(reconciled, res)
+		}
+	}
+	return reconciled
+}
+
+func reconcileWindsurfRule(rulesDir, fileName, canonicalBase string) (ProjectionResult, bool) {
+	skillName := strings.TrimSuffix(fileName, ".md")
+	if skillName == "" {
+		return ProjectionResult{}, false
+	}
+	wsPath := filepath.Join(rulesDir, fileName)
+	wsInfo, sErr := os.Stat(wsPath)
+	if sErr != nil {
+		return ProjectionResult{}, false
+	}
+	wsBytes, rErr := os.ReadFile(wsPath)
+	if rErr != nil {
+		return ProjectionResult{}, false
+	}
+
+	canSkillDir := filepath.Join(canonicalBase, skillName)
+	canSkillMD := filepath.Join(canSkillDir, "SKILL.md")
+	canInfo, canErr := os.Stat(canSkillMD)
+
+	if canErr != nil {
+		if mkErr := os.MkdirAll(canSkillDir, 0755); mkErr != nil {
+			return ProjectionResult{}, false
+		}
+		contentToWrite := wsBytes
+		if _, _, hasFM, _ := catalog.ExtractFrontmatter(wsBytes); !hasFM {
+			contentToWrite = ConvertFromCursorMDC(skillName, wsBytes, nil)
+		}
+		if wErr := os.WriteFile(canSkillMD, contentToWrite, 0644); wErr != nil {
+			return ProjectionResult{}, false
+		}
+		return ProjectionResult{
+			Skill:   skillName,
+			Harness: "agents",
+			Path:    canSkillMD,
+			Method:  "import-from-windsurf",
+			Status:  "synced",
+		}, true
+	}
+
+	if !wsInfo.ModTime().After(canInfo.ModTime()) {
+		return ProjectionResult{}, false
+	}
+	canBytes, cErr := os.ReadFile(canSkillMD)
+	if cErr != nil || strings.TrimSpace(string(wsBytes)) == strings.TrimSpace(string(canBytes)) {
+		return ProjectionResult{}, false
+	}
+	if wErr := os.WriteFile(canSkillMD, wsBytes, 0644); wErr != nil {
+		return ProjectionResult{}, false
+	}
+	return ProjectionResult{
+		Skill:   skillName,
+		Harness: "agents",
+		Path:    canSkillMD,
+		Method:  "reconcile-from-windsurf",
+		Status:  "synced",
+	}, true
 }
 
 // CopySkillDir copies a skill directory (SKILL.md, scripts/, references/, assets/) to dstDir.
@@ -772,5 +826,3 @@ func LocateOrPackageLocalSkill(nameOrPath string, searchRoots []string) (string,
 
 	return "", "", nop, fmt.Errorf("skill, rule, or command %q not found in local workspace or home harness directories", clean)
 }
-
-

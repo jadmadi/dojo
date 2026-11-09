@@ -407,77 +407,51 @@ func (s *State) RecordLoad(skillName string) {
 	s.RecordLoadDetailed(skillName, "", 1)
 }
 
-// RecordLoadDetailed updates the last seen timestamp and increments the appropriate counter
-// (LoadCount for primary page-1 loads, PageLoadCount for continuation pages > 1, or SubpathLoadCount for subpaths).
-func (s *State) RecordLoadDetailed(skillName, subpath string, page int) {
+// bumpHistory updates a skill's history record under the state lock, creating
+// it when absent and refreshing LastSeenAt before applying the counter change.
+func (s *State) bumpHistory(skillName string, apply func(*HistoryRecord)) {
 	if skillName == "" {
 		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	now := time.Now().UTC()
 	rec, ok := s.History[skillName]
 	if !ok || rec == nil {
-		rec = &HistoryRecord{
-			LastSeenAt: now,
-		}
+		rec = &HistoryRecord{}
 		s.History[skillName] = rec
-	} else {
-		rec.LastSeenAt = now
 	}
+	rec.LastSeenAt = time.Now().UTC()
+	apply(rec)
+}
 
-	if subpath != "" {
-		rec.SubpathLoadCount++
-	} else if page > 1 {
-		rec.PageLoadCount++
-	} else {
-		rec.LoadCount++
-	}
+// RecordLoadDetailed updates the last seen timestamp and increments the appropriate counter
+// (LoadCount for primary page-1 loads, PageLoadCount for continuation pages > 1, or SubpathLoadCount for subpaths).
+func (s *State) RecordLoadDetailed(skillName, subpath string, page int) {
+	s.bumpHistory(skillName, func(rec *HistoryRecord) {
+		switch {
+		case subpath != "":
+			rec.SubpathLoadCount++
+		case page > 1:
+			rec.PageLoadCount++
+		default:
+			rec.LoadCount++
+		}
+	})
 }
 
 // RecordRun updates the last seen timestamp and increments the script execution count for a skill.
 func (s *State) RecordRun(skillName string) {
-	if skillName == "" {
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	now := time.Now().UTC()
-	rec, ok := s.History[skillName]
-	if !ok || rec == nil {
-		rec = &HistoryRecord{
-			LastSeenAt: now,
-			RunCount:   1,
-		}
-		s.History[skillName] = rec
-	} else {
-		rec.LastSeenAt = now
+	s.bumpHistory(skillName, func(rec *HistoryRecord) {
 		rec.RunCount++
-	}
+	})
 }
 
 // RecordLearn updates the last seen timestamp and increments the learn count for a skill.
 func (s *State) RecordLearn(skillName string) {
-	if skillName == "" {
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	now := time.Now().UTC()
-	rec, ok := s.History[skillName]
-	if !ok || rec == nil {
-		rec = &HistoryRecord{
-			LastSeenAt: now,
-			LearnCount: 1,
-		}
-		s.History[skillName] = rec
-	} else {
-		rec.LastSeenAt = now
+	s.bumpHistory(skillName, func(rec *HistoryRecord) {
 		rec.LearnCount++
-	}
+	})
 }
 
 // MaxTelemetryDelta caps each counter increment in a single flush to match Firestore security rule bounds.

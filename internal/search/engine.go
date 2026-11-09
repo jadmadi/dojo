@@ -336,11 +336,63 @@ func (e *Engine) Search(query string, strategy string, limit int, threshold floa
 	}
 }
 
-func (e *Engine) searchBM25(query string, candidateDocIDs []uint32, limit int, threshold float32) []Result {
+// scoredDoc is one candidate with its score and matched field mask.
+type scoredDoc struct {
+	docID uint32
+	score float32
+	mask  uint8
+}
+
+// queryTokens tokenizes a query, falling back to raw tokens when stemming
+// yields nothing.
+func (e *Engine) queryTokens(query string) []string {
 	tokens := e.tokenizer.Tokenize(query)
 	if len(tokens) == 0 {
 		tokens = e.tokenizer.TokenizeRaw(query)
 	}
+	return tokens
+}
+
+// collectScoredDocs keeps candidates above the threshold and records which
+// fields matched.
+func (e *Engine) collectScoredDocs(candidates []uint32, threshold float32, score func(uint32) float32, matchMask func(uint32) uint8) []scoredDoc {
+	var scores []scoredDoc
+	for _, docID := range candidates {
+		s := score(docID)
+		if s <= threshold {
+			continue
+		}
+		scores = append(scores, scoredDoc{docID: docID, score: s, mask: matchMask(docID)})
+	}
+	return scores
+}
+
+// rankScoredDocs sorts by score then item ID and builds the result rows.
+func (e *Engine) rankScoredDocs(scores []scoredDoc, limit int, strategy string) []Result {
+	sort.Slice(scores, func(i, j int) bool {
+		if scores[i].score != scores[j].score {
+			return scores[i].score > scores[j].score
+		}
+		return e.items[scores[i].docID].ID < e.items[scores[j].docID].ID
+	})
+	if len(scores) > limit {
+		scores = scores[:limit]
+	}
+
+	results := make([]Result, 0, len(scores))
+	for _, ds := range scores {
+		results = append(results, Result{
+			Item:        e.items[ds.docID],
+			Score:       ds.score,
+			Strategy:    strategy,
+			MatchFields: maskToFieldNames(ds.mask),
+		})
+	}
+	return results
+}
+
+func (e *Engine) searchBM25(query string, candidateDocIDs []uint32, limit int, threshold float32) []Result {
+	tokens := e.queryTokens(query)
 	if len(tokens) == 0 {
 		return nil
 	}
@@ -353,63 +405,28 @@ func (e *Engine) searchBM25(query string, candidateDocIDs []uint32, limit int, t
 			queryWeights = append(queryWeights, 1.0)
 		}
 	}
-
 	if len(queryTermIDs) == 0 {
 		return nil
 	}
 
-	type docScore struct {
-		docID uint32
-		score float32
-		mask  uint8
+	score := func(docID uint32) float32 {
+		return e.bm25Scorer.Score(docID, queryTermIDs, queryWeights, e.docTFs[docID])
 	}
-
-	var scores []docScore
-	for _, docID := range candidateDocIDs {
-		tfs := e.docTFs[docID]
+	mask := func(docID uint32) uint8 {
+		var combined uint8
 		masks := e.docMasks[docID]
-		score := e.bm25Scorer.Score(docID, queryTermIDs, queryWeights, tfs)
-		if score > threshold {
-			var combinedMask uint8
-			for _, tid := range queryTermIDs {
-				combinedMask |= masks[tid]
-			}
-			scores = append(scores, docScore{
-				docID: docID,
-				score: score,
-				mask:  combinedMask,
-			})
+		for _, tid := range queryTermIDs {
+			combined |= masks[tid]
 		}
+		return combined
 	}
 
-	sort.Slice(scores, func(i, j int) bool {
-		if scores[i].score != scores[j].score {
-			return scores[i].score > scores[j].score
-		}
-		return e.items[scores[i].docID].ID < e.items[scores[j].docID].ID
-	})
-
-	if len(scores) > limit {
-		scores = scores[:limit]
-	}
-
-	results := make([]Result, 0, len(scores))
-	for _, ds := range scores {
-		results = append(results, Result{
-			Item:        e.items[ds.docID],
-			Score:       ds.score,
-			Strategy:    "bm25",
-			MatchFields: maskToFieldNames(ds.mask),
-		})
-	}
-	return results
+	scores := e.collectScoredDocs(candidateDocIDs, threshold, score, mask)
+	return e.rankScoredDocs(scores, limit, "bm25")
 }
 
 func (e *Engine) searchTFIDF(query string, candidateDocIDs []uint32, limit int, threshold float32) []Result {
-	tokens := e.tokenizer.Tokenize(query)
-	if len(tokens) == 0 {
-		tokens = e.tokenizer.TokenizeRaw(query)
-	}
+	tokens := e.queryTokens(query)
 	if len(tokens) == 0 {
 		return nil
 	}
@@ -420,56 +437,24 @@ func (e *Engine) searchTFIDF(query string, candidateDocIDs []uint32, limit int, 
 			queryTFs[tid] += 1.0
 		}
 	}
-
 	if len(queryTFs) == 0 {
 		return nil
 	}
 
-	type docScore struct {
-		docID uint32
-		score float32
-		mask  uint8
+	score := func(docID uint32) float32 {
+		return e.tfidfScorer.Score(docID, queryTFs, e.docTFs[docID])
 	}
-
-	var scores []docScore
-	for _, docID := range candidateDocIDs {
-		tfs := e.docTFs[docID]
+	mask := func(docID uint32) uint8 {
+		var combined uint8
 		masks := e.docMasks[docID]
-		score := e.tfidfScorer.Score(docID, queryTFs, tfs)
-		if score > threshold {
-			var combinedMask uint8
-			for tid := range queryTFs {
-				combinedMask |= masks[tid]
-			}
-			scores = append(scores, docScore{
-				docID: docID,
-				score: score,
-				mask:  combinedMask,
-			})
+		for tid := range queryTFs {
+			combined |= masks[tid]
 		}
+		return combined
 	}
 
-	sort.Slice(scores, func(i, j int) bool {
-		if scores[i].score != scores[j].score {
-			return scores[i].score > scores[j].score
-		}
-		return e.items[scores[i].docID].ID < e.items[scores[j].docID].ID
-	})
-
-	if len(scores) > limit {
-		scores = scores[:limit]
-	}
-
-	results := make([]Result, 0, len(scores))
-	for _, ds := range scores {
-		results = append(results, Result{
-			Item:        e.items[ds.docID],
-			Score:       ds.score,
-			Strategy:    "tfidf",
-			MatchFields: maskToFieldNames(ds.mask),
-		})
-	}
-	return results
+	scores := e.collectScoredDocs(candidateDocIDs, threshold, score, mask)
+	return e.rankScoredDocs(scores, limit, "tfidf")
 }
 
 // normalizeKey converts delimiters (hyphens, underscores, dots, slashes, colons) to spaces and collapses whitespace.
