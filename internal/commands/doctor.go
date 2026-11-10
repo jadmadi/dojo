@@ -79,188 +79,259 @@ func ScanDirectorySecurity(skillName, dir string) []DoctorFinding {
 	return findings
 }
 
+// doctorOptions holds the parsed flags for `dojo doctor`.
+type doctorOptions struct {
+	skills   bool
+	security bool
+	global   bool
+	json     bool
+	raw      bool
+}
+
 // RunDoctor audits environment health, installed skill frontmatter compliance, token budgets,
 // and suspicious prompt-injection or shell-execution patterns.
 func (a *App) RunDoctor(args []string) int {
-	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
-	fs.SetOutput(a.Stderr)
-	var skillsFlag, securityFlag, globalFlag, jsonFlag, rawFlag bool
-
-	fs.BoolVar(&skillsFlag, "skills", false, "Audit installed skills for frontmatter and token budget compliance")
-	fs.BoolVar(&securityFlag, "security", false, "Scan installed skills and scripts for prompt injection and unsafe execution patterns")
-	fs.BoolVar(&globalFlag, "global", false, "Include global skills (~/.agents/skills/)")
-	fs.BoolVar(&globalFlag, "g", false, "Include global skills (shorthand)")
-	fs.BoolVar(&jsonFlag, "json", false, "Output in JSON format")
-	fs.BoolVar(&rawFlag, "raw", false, "Output in raw tab-separated format")
-
-	if _, err := parseFlagsWithArgs(fs, args); err != nil {
+	opts, ok := a.parseDoctorArgs(args)
+	if !ok {
 		return ExitUsage
 	}
 
-	// Default to running all checks if neither --skills nor --security was explicitly narrowed
-	runEnv := !skillsFlag && !securityFlag
-	runSkills := skillsFlag || (!skillsFlag && !securityFlag)
-	runSecurity := securityFlag || (!skillsFlag && !securityFlag)
+	runEnv := !opts.skills && !opts.security
 
 	var findings []DoctorFinding
-
 	if runEnv {
-		cfgPath := config.ResolveConfigPath(a.Options.Config)
+		findings = append(findings, a.environmentFindings()...)
+	}
+	skillDirs := a.doctorSkillDirs(opts.global)
+	for _, name := range sortedKeys(skillDirs) {
+		findings = append(findings, a.auditInstalledSkill(name, skillDirs[name], opts)...)
+	}
+
+	hasError, warnCount := summarizeFindings(findings)
+	writeDoctorReport(a.Stdout, a.resolveMode(opts.json, opts.raw), findings, hasError, warnCount)
+
+	if hasError {
+		return ExitGeneral
+	}
+	return ExitSuccess
+}
+
+func (a *App) parseDoctorArgs(args []string) (doctorOptions, bool) {
+	var opts doctorOptions
+	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
+	fs.SetOutput(a.Stderr)
+
+	fs.BoolVar(&opts.skills, "skills", false, "Audit installed skills for frontmatter and token budget compliance")
+	fs.BoolVar(&opts.security, "security", false, "Scan installed skills and scripts for prompt injection and unsafe execution patterns")
+	fs.BoolVar(&opts.global, "global", false, "Include global skills (~/.agents/skills/)")
+	fs.BoolVar(&opts.global, "g", false, "Include global skills (shorthand)")
+	fs.BoolVar(&opts.json, "json", false, "Output in JSON format")
+	fs.BoolVar(&opts.raw, "raw", false, "Output in raw tab-separated format")
+
+	if _, err := parseFlagsWithArgs(fs, args); err != nil {
+		return opts, false
+	}
+	return opts, true
+}
+
+// environmentFindings checks config, state, and cache reachability.
+func (a *App) environmentFindings() []DoctorFinding {
+	var findings []DoctorFinding
+
+	cfgPath := config.ResolveConfigPath(a.Options.Config)
+	findings = append(findings, DoctorFinding{
+		Category: "environment",
+		Severity: "ok",
+		Message:  fmt.Sprintf("config path resolved (%s)", cfgPath),
+		File:     cfgPath,
+	})
+
+	statePath := state.DefaultStateFilePath()
+	if _, err := state.LoadState(statePath); err != nil {
 		findings = append(findings, DoctorFinding{
 			Category: "environment",
-			Severity: "ok",
-			Message:  fmt.Sprintf("config path resolved (%s)", cfgPath),
-			File:     cfgPath,
+			Severity: "error",
+			Message:  fmt.Sprintf("state file unreadable: %v", err),
+			File:     statePath,
 		})
-
-		statePath := state.DefaultStateFilePath()
-		if _, err := state.LoadState(statePath); err != nil {
-			findings = append(findings, DoctorFinding{
-				Category: "environment",
-				Severity: "error",
-				Message:  fmt.Sprintf("state file unreadable: %v", err),
-				File:     statePath,
-			})
-		} else {
-			findings = append(findings, DoctorFinding{
-				Category: "environment",
-				Severity: "ok",
-				Message:  fmt.Sprintf("state manifest healthy (%s)", statePath),
-				File:     statePath,
-			})
-		}
-
-		cacheDir := a.cacheRootDir()
+	} else {
 		findings = append(findings, DoctorFinding{
 			Category: "environment",
 			Severity: "ok",
-			Message:  fmt.Sprintf("cache directory ready (%s)", cacheDir),
-			File:     cacheDir,
+			Message:  fmt.Sprintf("state manifest healthy (%s)", statePath),
+			File:     statePath,
 		})
 	}
 
+	cacheDir := a.cacheRootDir()
+	findings = append(findings, DoctorFinding{
+		Category: "environment",
+		Severity: "ok",
+		Message:  fmt.Sprintf("cache directory ready (%s)", cacheDir),
+		File:     cacheDir,
+	})
+	return findings
+}
+
+// doctorSkillDirs returns the skill directories to audit by name.
+func (a *App) doctorSkillDirs(includeGlobal bool) map[string]string {
 	wd, _ := os.Getwd()
 	skillDirs := harness.DiscoverInstalledSkillDirs(wd)
-	if entries, err := os.ReadDir(filepath.Join(wd, "skills")); err == nil {
-		for _, e := range entries {
-			cand := filepath.Join(wd, "skills", e.Name())
-			if _, sErr := os.Stat(filepath.Join(cand, "SKILL.md")); sErr == nil {
-				if _, exists := skillDirs[e.Name()]; !exists {
-					skillDirs[e.Name()] = cand
-				}
-			}
-		}
+	discoverWorkspaceSkillsDir(wd, skillDirs)
+	if includeGlobal {
+		discoverGlobalSkills(skillDirs)
 	}
-	if globalFlag {
-		if home, err := os.UserHomeDir(); err == nil && home != "" {
-			for k, v := range harness.DiscoverInstalledSkillDirs(home) {
-				if _, exists := skillDirs[k]; !exists {
-					skillDirs[k] = v
-				}
-			}
-		}
-	}
+	return skillDirs
+}
 
-	var names []string
-	for name := range skillDirs {
+func sortedKeys(m map[string]string) []string {
+	names := make([]string, 0, len(m))
+	for name := range m {
 		names = append(names, name)
 	}
 	sort.Strings(names)
+	return names
+}
 
-	for _, name := range names {
-		dir := skillDirs[name]
-		skillMD := filepath.Join(dir, "SKILL.md")
-		data, err := os.ReadFile(skillMD)
-		if err != nil {
-			findings = append(findings, DoctorFinding{
-				Category: "skill",
-				Skill:    name,
-				Severity: "error",
-				Message:  "missing or unreadable SKILL.md",
-				File:     skillMD,
-			})
+// discoverWorkspaceSkillsDir adds skills under <wd>/skills that are not
+// already installed in a harness.
+func discoverWorkspaceSkillsDir(wd string, skillDirs map[string]string) {
+	entries, err := os.ReadDir(filepath.Join(wd, "skills"))
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		cand := filepath.Join(wd, "skills", e.Name())
+		if _, sErr := os.Stat(filepath.Join(cand, "SKILL.md")); sErr != nil {
 			continue
 		}
-
-		if runSkills {
-			fm, body, fmErr := catalog.ParseFrontmatter(data)
-			if fmErr != nil || fm == nil {
-				findings = append(findings, DoctorFinding{
-					Category: "skill",
-					Skill:    name,
-					Severity: "error",
-					Message:  fmt.Sprintf("invalid YAML frontmatter: %v", fmErr),
-					File:     skillMD,
-				})
-			} else {
-				if strings.TrimSpace(fm.Name) == "" {
-					findings = append(findings, DoctorFinding{
-						Category: "skill",
-						Skill:    name,
-						Severity: "warn",
-						Message:  "frontmatter missing 'name' field",
-						File:     skillMD,
-					})
-				}
-				if strings.TrimSpace(fm.Description) == "" {
-					findings = append(findings, DoctorFinding{
-						Category: "skill",
-						Skill:    name,
-						Severity: "warn",
-						Message:  "frontmatter missing 'description' field",
-						File:     skillMD,
-					})
-				}
-			}
-
-			estTokens := (len(body) + 3) / 4
-			if len(body) > DefaultPageSize {
-				sections := catalog.ParseSections(body)
-				findings = append(findings, DoctorFinding{
-					Category: "budget",
-					Skill:    name,
-					Severity: "warn",
-					Message:  fmt.Sprintf("SKILL.md body is %d bytes (~%d tokens > %dB single-page budget; %d sections available via 'dojo toc %s')", len(body), estTokens, DefaultPageSize, len(sections), name),
-					File:     skillMD,
-				})
-			} else {
-				findings = append(findings, DoctorFinding{
-					Category: "skill",
-					Skill:    name,
-					Severity: "ok",
-					Message:  fmt.Sprintf("valid SKILL.md (%d bytes, ~%d tokens)", len(body), estTokens),
-					File:     skillMD,
-				})
-			}
-		}
-
-		if runSecurity {
-			secFindings := ScanDirectorySecurity(name, dir)
-			if len(secFindings) > 0 {
-				findings = append(findings, secFindings...)
-			} else {
-				findings = append(findings, DoctorFinding{
-					Category: "security",
-					Skill:    name,
-					Severity: "ok",
-					Message:  "passed static security and prompt-injection scan",
-					File:     dir,
-				})
-			}
+		if _, exists := skillDirs[e.Name()]; !exists {
+			skillDirs[e.Name()] = cand
 		}
 	}
+}
 
-	hasError := false
-	warnCount := 0
+func discoverGlobalSkills(skillDirs map[string]string) {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return
+	}
+	for k, v := range harness.DiscoverInstalledSkillDirs(home) {
+		if _, exists := skillDirs[k]; !exists {
+			skillDirs[k] = v
+		}
+	}
+}
+
+// auditInstalledSkill validates one skill directory.
+func (a *App) auditInstalledSkill(name, dir string, opts doctorOptions) []DoctorFinding {
+	skillMD := filepath.Join(dir, "SKILL.md")
+	data, err := os.ReadFile(skillMD)
+	if err != nil {
+		return []DoctorFinding{{
+			Category: "skill",
+			Skill:    name,
+			Severity: "error",
+			Message:  "missing or unreadable SKILL.md",
+			File:     skillMD,
+		}}
+	}
+
+	var findings []DoctorFinding
+	if opts.skills || (!opts.skills && !opts.security) {
+		findings = append(findings, auditSkillFrontmatter(name, skillMD, data)...)
+		findings = append(findings, auditSkillBudget(name, skillMD, data)...)
+	}
+	if opts.security || (!opts.skills && !opts.security) {
+		findings = append(findings, auditSkillSecurity(name, dir)...)
+	}
+	return findings
+}
+
+func auditSkillFrontmatter(name, skillMD string, data []byte) []DoctorFinding {
+	fm, _, fmErr := catalog.ParseFrontmatter(data)
+	if fmErr != nil || fm == nil {
+		return []DoctorFinding{{
+			Category: "skill",
+			Skill:    name,
+			Severity: "error",
+			Message:  fmt.Sprintf("invalid YAML frontmatter: %v", fmErr),
+			File:     skillMD,
+		}}
+	}
+
+	var findings []DoctorFinding
+	if strings.TrimSpace(fm.Name) == "" {
+		findings = append(findings, DoctorFinding{
+			Category: "skill",
+			Skill:    name,
+			Severity: "warn",
+			Message:  "frontmatter missing 'name' field",
+			File:     skillMD,
+		})
+	}
+	if strings.TrimSpace(fm.Description) == "" {
+		findings = append(findings, DoctorFinding{
+			Category: "skill",
+			Skill:    name,
+			Severity: "warn",
+			Message:  "frontmatter missing 'description' field",
+			File:     skillMD,
+		})
+	}
+	return findings
+}
+
+func auditSkillBudget(name, skillMD string, data []byte) []DoctorFinding {
+	_, body, _ := catalog.ParseFrontmatter(data)
+	estTokens := (len(body) + 3) / 4
+
+	if len(body) > DefaultPageSize {
+		sections := catalog.ParseSections(body)
+		return []DoctorFinding{{
+			Category: "budget",
+			Skill:    name,
+			Severity: "warn",
+			Message:  fmt.Sprintf("SKILL.md body is %d bytes (~%d tokens > %dB single-page budget; %d sections available via 'dojo toc %s')", len(body), estTokens, DefaultPageSize, len(sections), name),
+			File:     skillMD,
+		}}
+	}
+	return []DoctorFinding{{
+		Category: "skill",
+		Skill:    name,
+		Severity: "ok",
+		Message:  fmt.Sprintf("valid SKILL.md (%d bytes, ~%d tokens)", len(body), estTokens),
+		File:     skillMD,
+	}}
+}
+
+func auditSkillSecurity(name, dir string) []DoctorFinding {
+	secFindings := ScanDirectorySecurity(name, dir)
+	if len(secFindings) > 0 {
+		return secFindings
+	}
+	return []DoctorFinding{{
+		Category: "security",
+		Skill:    name,
+		Severity: "ok",
+		Message:  "passed static security and prompt-injection scan",
+		File:     dir,
+	}}
+}
+
+func summarizeFindings(findings []DoctorFinding) (hasError bool, warnCount int) {
 	for _, f := range findings {
-		if f.Severity == "error" {
+		switch f.Severity {
+		case "error":
 			hasError = true
-		} else if f.Severity == "warn" {
+		case "warn":
 			warnCount++
 		}
 	}
+	return hasError, warnCount
+}
 
-	mode := a.resolveMode(jsonFlag, rawFlag)
+func writeDoctorReport(stdout interface{ Write([]byte) (int, error) }, mode OutputMode, findings []DoctorFinding, hasError bool, warnCount int) {
 	switch mode {
 	case OutputModeJSON:
 		res := struct {
@@ -272,12 +343,12 @@ func (a *App) RunDoctor(args []string) int {
 			Warnings: warnCount,
 			Findings: findings,
 		}
-		enc := json.NewEncoder(a.Stdout)
+		enc := json.NewEncoder(stdout)
 		enc.SetIndent("", "  ")
 		_ = enc.Encode(res)
 	case OutputModeRaw:
 		for _, f := range findings {
-			_, _ = fmt.Fprintf(a.Stdout, "%s\t%s\t%s\t%s\n",
+			_, _ = fmt.Fprintf(stdout, "%s\t%s\t%s\t%s\n",
 				sanitizeTSVField(f.Severity),
 				sanitizeTSVField(f.Category),
 				sanitizeTSVField(f.Skill),
@@ -285,25 +356,27 @@ func (a *App) RunDoctor(args []string) int {
 			)
 		}
 	default:
-		_, _ = fmt.Fprintf(a.Stdout, "DOJO DOCTOR DIAGNOSTICS (%d checks, %d warnings):\n\n", len(findings), warnCount)
+		_, _ = fmt.Fprintf(stdout, "DOJO DOCTOR DIAGNOSTICS (%d checks, %d warnings):\n\n", len(findings), warnCount)
 		for _, f := range findings {
-			prefix := "✓"
-			switch f.Severity {
-			case "warn":
-				prefix = "⚠"
-			case "error":
-				prefix = "✗"
-			}
-			label := f.Category
-			if f.Skill != "" {
-				label = fmt.Sprintf("%s:%s", f.Category, f.Skill)
-			}
-			_, _ = fmt.Fprintf(a.Stdout, "  %s [%-18s] %s\n", prefix, label, f.Message)
+			_, _ = fmt.Fprintf(stdout, "  %s [%-18s] %s\n", severityPrefix(f.Severity), doctorFindingLabel(f), f.Message)
 		}
 	}
+}
 
-	if hasError {
-		return ExitGeneral
+func severityPrefix(severity string) string {
+	switch severity {
+	case "warn":
+		return "⚠"
+	case "error":
+		return "✗"
+	default:
+		return "✓"
 	}
-	return ExitSuccess
+}
+
+func doctorFindingLabel(f DoctorFinding) string {
+	if f.Skill == "" {
+		return f.Category
+	}
+	return fmt.Sprintf("%s:%s", f.Category, f.Skill)
 }

@@ -846,6 +846,32 @@ func ExtractCandidates(content string) []string {
 	return candidates
 }
 
+// installTracker records the files an install produced, de-duplicated and
+// normalized to slash-separated relative paths.
+type installTracker struct {
+	seen  map[string]bool
+	files []string
+}
+
+func newInstallTracker() *installTracker {
+	return &installTracker{seen: make(map[string]bool)}
+}
+
+func (t *installTracker) record(rel string) {
+	cleanRel := filepath.ToSlash(filepath.Clean(rel))
+	cleanRel = strings.TrimPrefix(cleanRel, "./")
+	if t.seen[cleanRel] {
+		return
+	}
+	t.seen[cleanRel] = true
+	t.files = append(t.files, cleanRel)
+}
+
+func (t *installTracker) sorted() []string {
+	sort.Strings(t.files)
+	return t.files
+}
+
 // InstallSkillContext installs all skill files (SKILL.md, references, scripts, auxiliary docs) into destDir.
 func InstallSkillContext(ctx context.Context, item catalog.Item, destDir string, rawContent string, extraCandidates []string, client *http.Client) ([]string, error) {
 	if destDir == "" {
@@ -857,146 +883,168 @@ func InstallSkillContext(ctx context.Context, item catalog.Item, destDir string,
 		return nil, fmt.Errorf("runner: creating destination directory %s: %w", cleanDest, err)
 	}
 
-	installedMap := make(map[string]bool)
-	var installedFiles []string
+	tracker := newInstallTracker()
+	remoteURL := itemRemoteURL(item)
 
-	recordInstalled := func(rel string) {
-		cleanRel := filepath.ToSlash(filepath.Clean(rel))
-		cleanRel = strings.TrimPrefix(cleanRel, "./")
-		if !installedMap[cleanRel] {
-			installedMap[cleanRel] = true
-			installedFiles = append(installedFiles, cleanRel)
+	// 0. Archive items unpack straight into the destination.
+	if catalog.IsArchiveItem(item) && remoteURL != "" {
+		if handled, files, err := installFromArchive(ctx, item, remoteURL, cleanDest, tracker, client); handled {
+			return files, err
 		}
 	}
 
-	// 0. If item is an archive (ItemTypeArchive or .tar.gz/.zip URL), unpack directly into destDir
-	remoteURL := item.URL
-	if remoteURL == "" && item.Metadata != nil && item.Metadata["canonical"] != "" {
-		remoteURL = item.Metadata["canonical"]
+	// 1. Ensure SKILL.md is written.
+	content, err := ensureInstalledSkillMD(ctx, item, cleanDest, rawContent, remoteURL, client, tracker)
+	if err != nil {
+		return nil, err
 	}
-	isArchive := catalog.IsArchiveItem(item)
 
-	if isArchive && remoteURL != "" {
-		expectedDigest := item.EffectiveDigest()
-		cacheRoot := resolveCacheRoot()
-		sKey := skillCacheKey(item)
-		if expectedDigest != "" && cacheRoot != "" && sKey != "" && catalog.IsArchiveCachedWithDigest(cacheRoot, sKey, expectedDigest) {
-			cacheSkillDir := filepath.Join(cacheRoot, "skills", sKey)
-			if extracted, err := copyCachedArchiveDir(cacheSkillDir, cleanDest); err == nil && len(extracted) > 0 {
-				for _, rel := range extracted {
-					recordInstalled(rel)
-				}
-				pruneStaleInstalledFiles(cleanDest, installedMap)
-				sort.Strings(installedFiles)
-				return installedFiles, nil
+	// 2. Install referenced files breadth-first, following links in Markdown.
+	queue := collectInstallCandidates(item, content, extraCandidates)
+	if err := installCandidateFiles(ctx, item, cleanDest, queue, remoteURL, client, tracker); err != nil {
+		return nil, err
+	}
+
+	pruneStaleInstalledFiles(cleanDest, tracker.seen)
+	return tracker.sorted(), nil
+}
+
+// installFromArchive materializes an archive item from the digest-verified
+// cache when possible, otherwise downloads and unpacks it.
+func installFromArchive(ctx context.Context, item catalog.Item, remoteURL, cleanDest string, tracker *installTracker, client *http.Client) (bool, []string, error) {
+	expectedDigest := item.EffectiveDigest()
+	cacheRoot := resolveCacheRoot()
+	sKey := skillCacheKey(item)
+
+	if expectedDigest != "" && cacheRoot != "" && sKey != "" && catalog.IsArchiveCachedWithDigest(cacheRoot, sKey, expectedDigest) {
+		cacheSkillDir := filepath.Join(cacheRoot, "skills", sKey)
+		if extracted, err := copyCachedArchiveDir(cacheSkillDir, cleanDest); err == nil && len(extracted) > 0 {
+			for _, rel := range extracted {
+				tracker.record(rel)
 			}
+			pruneStaleInstalledFiles(cleanDest, tracker.seen)
+			return true, tracker.sorted(), nil
 		}
-
-		if client == nil {
-			client = &http.Client{Timeout: 30 * time.Second}
-		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, remoteURL, nil)
-		if err != nil {
-			return nil, fmt.Errorf("runner: creating archive request for %s: %w", item.Name, err)
-		}
-		req.Header.Set("User-Agent", version.UserAgent())
-		resp, err := client.Do(req)
-		if err != nil {
-			return nil, fmt.Errorf("runner: downloading archive for %s: %w", item.Name, err)
-		}
-		defer func() { _ = resp.Body.Close() }()
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("runner: downloading archive for %s: HTTP %d", item.Name, resp.StatusCode)
-		}
-		data, err := catalog.ReadBounded(resp.Body, catalog.DefaultMaxUnpackedBytes)
-		if err != nil {
-			return nil, fmt.Errorf("runner: reading archive data for %s: %w", item.Name, err)
-		}
-		if expectedDigest != "" {
-			if vErr := catalog.VerifyDigest(data, expectedDigest); vErr != nil {
-				return nil, fmt.Errorf("runner: %w: %v", catalog.ErrDigestMismatch, vErr)
-			}
-		}
-		extracted, err := catalog.UnpackArchive(data, cleanDest, catalog.DefaultMaxUnpackedBytes)
-		if err != nil {
-			return nil, fmt.Errorf("runner: unpacking archive for %s: %w", item.Name, err)
-		}
-		for _, rel := range extracted {
-			recordInstalled(rel)
-		}
-		pruneStaleInstalledFiles(cleanDest, installedMap)
-		sort.Strings(installedFiles)
-		return installedFiles, nil
 	}
 
-	// 1. Ensure SKILL.md is written
+	if client == nil {
+		client = &http.Client{Timeout: 30 * time.Second}
+	}
+	data, err := downloadArchive(ctx, client, remoteURL, item.Name)
+	if err != nil {
+		return true, nil, err
+	}
+	if expectedDigest != "" {
+		if vErr := catalog.VerifyDigest(data, expectedDigest); vErr != nil {
+			return true, nil, fmt.Errorf("runner: %w: %v", catalog.ErrDigestMismatch, vErr)
+		}
+	}
+
+	extracted, err := catalog.UnpackArchive(data, cleanDest, catalog.DefaultMaxUnpackedBytes)
+	if err != nil {
+		return true, nil, fmt.Errorf("runner: unpacking archive for %s: %w", item.Name, err)
+	}
+	for _, rel := range extracted {
+		tracker.record(rel)
+	}
+	pruneStaleInstalledFiles(cleanDest, tracker.seen)
+	return true, tracker.sorted(), nil
+}
+
+// ensureInstalledSkillMD writes the supplied body, or fetches it when absent.
+func ensureInstalledSkillMD(ctx context.Context, item catalog.Item, cleanDest, rawContent, remoteURL string, client *http.Client, tracker *installTracker) (string, error) {
 	skillFilePath := filepath.Join(cleanDest, "SKILL.md")
+
 	if rawContent != "" {
 		if err := os.WriteFile(skillFilePath, []byte(rawContent), 0644); err != nil {
-			return nil, fmt.Errorf("runner: writing %s: %w", skillFilePath, err)
+			return "", fmt.Errorf("runner: writing %s: %w", skillFilePath, err)
 		}
-		recordInstalled("SKILL.md")
-	} else if !installedMap["SKILL.md"] {
-		if data, err := readBytesInternal(ctx, item, "SKILL.md", client, cleanDest, remoteURL != ""); err == nil {
-			rawContent = string(data)
-			if err := os.WriteFile(skillFilePath, data, 0644); err != nil {
-				return nil, fmt.Errorf("runner: writing %s: %w", skillFilePath, err)
-			}
-			recordInstalled("SKILL.md")
-		} else if data, rErr := os.ReadFile(skillFilePath); rErr == nil {
-			rawContent = string(data)
-			recordInstalled("SKILL.md")
-		} else {
-			return nil, fmt.Errorf("runner: fetching SKILL.md for %s: %w", item.Name, err)
-		}
+		tracker.record("SKILL.md")
+		return rawContent, nil
+	}
+	if tracker.seen["SKILL.md"] {
+		return rawContent, nil
 	}
 
-	// 3. Queue candidate files referenced in markdown and extraCandidates
-	seenCandidates := make(map[string]bool)
-	var queue []string
+	data, err := readBytesInternal(ctx, item, "SKILL.md", client, cleanDest, remoteURL != "")
+	if err == nil {
+		if writeErr := os.WriteFile(skillFilePath, data, 0644); writeErr != nil {
+			return "", fmt.Errorf("runner: writing %s: %w", skillFilePath, writeErr)
+		}
+		tracker.record("SKILL.md")
+		return string(data), nil
+	}
+	if existing, readErr := os.ReadFile(skillFilePath); readErr == nil {
+		tracker.record("SKILL.md")
+		return string(existing), nil
+	}
+	return "", fmt.Errorf("runner: fetching SKILL.md for %s: %w", item.Name, err)
+}
 
-	addCandidate := func(p string) {
-		p = strings.TrimSpace(p)
-		if p == "" || p == "." || p == ".." || strings.HasPrefix(p, "#") || strings.HasPrefix(p, "http://") || strings.HasPrefix(p, "https://") || strings.HasPrefix(p, "mailto:") {
+// collectInstallCandidates merges Markdown references and caller-supplied paths
+// into a de-duplicated queue.
+func collectInstallCandidates(item catalog.Item, rawContent string, extraCandidates []string) []string {
+	var queue []string
+	seen := make(map[string]bool)
+
+	add := func(p string) {
+		clean, ok := normalizeCandidatePath(p)
+		if !ok || seen[clean] {
 			return
 		}
-		if idx := strings.IndexAny(p, "?#"); idx != -1 {
-			p = p[:idx]
-		}
-		if strings.Contains(p, ":") || strings.HasPrefix(p, "\\") || filepath.IsAbs(p) {
-			return
-		}
-		clean := filepath.ToSlash(filepath.Clean(p))
-		clean = strings.TrimPrefix(clean, "./")
-		if clean == "" || clean == "." || clean == ".." || clean == "SKILL.md" || clean == "skill.md" || strings.HasPrefix(clean, "../") || strings.Contains(clean, "/../") || strings.HasPrefix(clean, "/") {
-			return
-		}
-		if !seenCandidates[clean] {
-			seenCandidates[clean] = true
-			queue = append(queue, clean)
-		}
+		seen[clean] = true
+		queue = append(queue, clean)
 	}
 
 	if rawContent != "" {
 		for _, c := range ExtractCandidates(rawContent) {
-			addCandidate(c)
+			add(c)
 		}
 	}
 	if item.Body != "" && item.Body != rawContent {
 		for _, c := range ExtractCandidates(item.Body) {
-			addCandidate(c)
+			add(c)
 		}
 	}
 	for _, cand := range extraCandidates {
-		addCandidate(cand)
+		add(cand)
+	}
+	return queue
+}
+
+// normalizeCandidatePath rejects URLs, anchors, absolute paths, and traversal.
+func normalizeCandidatePath(p string) (string, bool) {
+	p = strings.TrimSpace(p)
+	if p == "" || p == "." || p == ".." || strings.HasPrefix(p, "#") ||
+		strings.HasPrefix(p, "http://") || strings.HasPrefix(p, "https://") || strings.HasPrefix(p, "mailto:") {
+		return "", false
+	}
+	if idx := strings.IndexAny(p, "?#"); idx != -1 {
+		p = p[:idx]
+	}
+	if strings.Contains(p, ":") || strings.HasPrefix(p, "\\") || filepath.IsAbs(p) {
+		return "", false
 	}
 
-	preferRemote := remoteURL != "" && item.Source != "local"
-	for len(queue) > 0 {
-		target := queue[0]
-		queue = queue[1:]
+	clean := strings.TrimPrefix(filepath.ToSlash(filepath.Clean(p)), "./")
+	if clean == "" || clean == "." || clean == ".." || clean == "SKILL.md" || clean == "skill.md" ||
+		strings.HasPrefix(clean, "../") || strings.Contains(clean, "/../") || strings.HasPrefix(clean, "/") {
+		return "", false
+	}
+	return clean, true
+}
 
-		if installedMap[target] {
+// installCandidateFiles writes each queued file and follows Markdown links.
+func installCandidateFiles(ctx context.Context, item catalog.Item, cleanDest string, queue []string, remoteURL string, client *http.Client, tracker *installTracker) error {
+	preferRemote := remoteURL != "" && item.Source != "local"
+	queued := make(map[string]bool, len(queue))
+	for _, q := range queue {
+		queued[q] = true
+	}
+
+	for i := 0; i < len(queue); i++ {
+		target := queue[i]
+		if tracker.seen[target] {
 			continue
 		}
 
@@ -1007,34 +1055,45 @@ func InstallSkillContext(ctx context.Context, item catalog.Item, destDir string,
 
 		destFilePath := filepath.Join(cleanDest, filepath.FromSlash(target))
 		if !isContained(cleanDest, destFilePath) {
-			return nil, fmt.Errorf("runner: candidate %q escapes destination directory %q: %w", target, cleanDest, ErrInvalidPath)
+			return fmt.Errorf("runner: candidate %q escapes destination directory %q: %w", target, cleanDest, ErrInvalidPath)
 		}
 		if err := os.MkdirAll(filepath.Dir(destFilePath), 0755); err != nil {
-			return nil, fmt.Errorf("runner: creating directory for %s: %w", destFilePath, err)
+			return fmt.Errorf("runner: creating directory for %s: %w", destFilePath, err)
 		}
 
-		var perm os.FileMode = 0644
-		if strings.HasPrefix(target, "scripts/") || strings.HasSuffix(target, ".sh") || strings.HasSuffix(target, ".py") || strings.HasSuffix(target, ".js") || strings.HasSuffix(target, ".ts") {
-			perm = 0755
-		}
-
+		perm := installedFilePerm(target)
 		if err := os.WriteFile(destFilePath, data, perm); err != nil {
-			return nil, fmt.Errorf("runner: writing %s: %w", destFilePath, err)
+			return fmt.Errorf("runner: writing %s: %w", destFilePath, err)
 		}
 		if err := os.Chmod(destFilePath, perm); err != nil {
-			return nil, fmt.Errorf("runner: setting permissions on %s: %w", destFilePath, err)
+			return fmt.Errorf("runner: setting permissions on %s: %w", destFilePath, err)
 		}
-		recordInstalled(target)
+		tracker.record(target)
+
 		if strings.HasSuffix(strings.ToLower(target), ".md") && utf8.Valid(data) {
 			for _, next := range ExtractCandidates(string(data)) {
-				addCandidate(next)
+				clean, ok := normalizeCandidatePath(next)
+				if !ok || queued[clean] || tracker.seen[clean] {
+					continue
+				}
+				queued[clean] = true
+				queue = append(queue, clean)
 			}
 		}
 	}
+	return nil
+}
 
-	pruneStaleInstalledFiles(cleanDest, installedMap)
-	sort.Strings(installedFiles)
-	return installedFiles, nil
+// installedFilePerm marks scripts executable and everything else readable.
+func installedFilePerm(target string) os.FileMode {
+	if strings.HasPrefix(target, "scripts/") ||
+		strings.HasSuffix(target, ".sh") ||
+		strings.HasSuffix(target, ".py") ||
+		strings.HasSuffix(target, ".js") ||
+		strings.HasSuffix(target, ".ts") {
+		return 0755
+	}
+	return 0644
 }
 
 func pruneStaleInstalledFiles(cleanDest string, installedMap map[string]bool) {

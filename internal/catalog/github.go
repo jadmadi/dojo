@@ -448,51 +448,67 @@ func tryFetchManifest(ctx context.Context, target *GitHubTarget, ref, catPath st
 }
 
 func probeGitHubCatalogRef(ctx context.Context, target *GitHubTarget, ref string, client *http.Client) (*Manifest, error) {
-	// 1. Try .well-known/agent-skills/index.json endpoints first (Agent Skills Discovery RFC v0.2.0)
-	candidateWellKnownPaths := []string{
-		".well-known/agent-skills/index.json",
-	}
-	if target.Subpath != "" {
-		candidateWellKnownPaths = append([]string{target.Subpath + "/.well-known/agent-skills/index.json"}, candidateWellKnownPaths...)
-	}
-
-	for _, wkPath := range candidateWellKnownPaths {
-		if m, err := tryFetchManifest(ctx, target, ref, wkPath, client); err == nil && m != nil && len(m.Items) > 0 {
+	for _, paths := range manifestCandidateGroups(target.Subpath) {
+		if m := firstMatchingManifest(ctx, target, ref, paths, client); m != nil {
 			return m, nil
 		}
 	}
+	return discoverTreeManifest(ctx, target, ref, client)
+}
 
-	// 2. Try index.json endpoints next (google/skills standard)
-	candidateIndexPaths := []string{
-		"index.json",
-		"skills/index.json",
+// manifestCandidateGroups lists the manifest locations to probe, in priority
+// order: RFC well-known, index.json, then legacy catalog.json.
+func manifestCandidateGroups(subpath string) [][]string {
+	groups := [][]string{
+		{".well-known/agent-skills/index.json"},
+		{"index.json", "skills/index.json"},
+		{"catalog.json", "skills/catalog.json"},
 	}
-	if target.Subpath != "" {
-		candidateIndexPaths = append([]string{target.Subpath + "/index.json"}, candidateIndexPaths...)
+	if subpath != "" {
+		trimmed := strings.Trim(subpath, "/")
+		groups[0] = append([]string{trimmed + "/.well-known/agent-skills/index.json"}, groups[0]...)
+		groups[1] = append([]string{trimmed + "/index.json"}, groups[1]...)
+		groups[2] = append([]string{trimmed + "/catalog.json"}, groups[2]...)
 	}
+	return groups
+}
 
-	for _, indexPath := range candidateIndexPaths {
-		if m, err := tryFetchManifest(ctx, target, ref, indexPath, client); err == nil && m != nil && len(m.Items) > 0 {
-			return m, nil
+func firstMatchingManifest(ctx context.Context, target *GitHubTarget, ref string, paths []string, client *http.Client) *Manifest {
+	for _, p := range paths {
+		m, err := tryFetchManifest(ctx, target, ref, p, client)
+		if err == nil && m != nil && len(m.Items) > 0 {
+			return m
 		}
 	}
+	return nil
+}
 
-	// 3. Try catalog.json endpoints (legacy backwards-compatibility fallback for 2 versions)
-	candidateCatalogPaths := []string{
-		"catalog.json",
-		"skills/catalog.json",
+// discoverTreeManifest crawls the Git tree for SKILL.md files and builds a
+// manifest from their frontmatter.
+func discoverTreeManifest(ctx context.Context, target *GitHubTarget, ref string, client *http.Client) (*Manifest, error) {
+	skillPaths, err := listSkillPaths(ctx, target, ref, client)
+	if err != nil {
+		return nil, err
 	}
-	if target.Subpath != "" {
-		candidateCatalogPaths = append([]string{target.Subpath + "/catalog.json"}, candidateCatalogPaths...)
+	if len(skillPaths) == 0 {
+		return nil, fmt.Errorf("no SKILL.md files discovered in %s/%s", target.Owner, target.Repo)
 	}
 
-	for _, catPath := range candidateCatalogPaths {
-		if m, err := tryFetchManifest(ctx, target, ref, catPath, client); err == nil && m != nil && len(m.Items) > 0 {
-			return m, nil
+	manifest := &Manifest{
+		Version: "1.0.0",
+		Items:   make([]Item, 0, len(skillPaths)),
+	}
+	for _, relPath := range skillPaths {
+		if item, ok := fetchTreeSkillItem(ctx, target, ref, relPath, client); ok {
+			manifest.Items = append(manifest.Items, item)
 		}
 	}
+	return manifest, nil
+}
 
-	// 4. Discover SKILL.md files via GitHub Git Tree API (agentskills.io standard directory crawl)
+// listSkillPaths reads the recursive Git tree and returns matching SKILL.md
+// paths under the target subpath.
+func listSkillPaths(ctx context.Context, target *GitHubTarget, ref string, client *http.Client) ([]string, error) {
 	treeURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/git/trees/%s?recursive=1", target.Owner, target.Repo, ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, treeURL, nil)
 	if err != nil {
@@ -511,7 +527,7 @@ func probeGitHubCatalogRef(ctx context.Context, target *GitHubTarget, ref string
 		return nil, fmt.Errorf("github api returned status %d for tree of %s/%s", resp.StatusCode, target.Owner, target.Repo)
 	}
 
-	bodyBytes, err := ReadBounded(resp.Body, 10<<20) // 10MB limit
+	bodyBytes, err := ReadBounded(resp.Body, 10<<20)
 	if err != nil {
 		return nil, fmt.Errorf("reading tree response: %w", err)
 	}
@@ -521,134 +537,133 @@ func probeGitHubCatalogRef(ctx context.Context, target *GitHubTarget, ref string
 		return nil, fmt.Errorf("parsing git tree: %w", err)
 	}
 
-	var skillPaths []string
 	prefix := ""
 	if target.Subpath != "" {
 		prefix = strings.Trim(target.Subpath, "/") + "/"
 	}
 
+	var skillPaths []string
 	for _, node := range treeResp.Tree {
 		if node.Type != "blob" {
 			continue
 		}
 		lower := strings.ToLower(node.Path)
-		if strings.HasSuffix(lower, "/skill.md") || lower == "skill.md" {
-			if prefix == "" || strings.HasPrefix(node.Path, prefix) {
-				skillPaths = append(skillPaths, node.Path)
-			}
+		if !strings.HasSuffix(lower, "/skill.md") && lower != "skill.md" {
+			continue
 		}
+		if prefix != "" && !strings.HasPrefix(node.Path, prefix) {
+			continue
+		}
+		skillPaths = append(skillPaths, node.Path)
+	}
+	return skillPaths, nil
+}
+
+// fetchTreeSkillItem downloads one SKILL.md and converts it to a manifest item.
+func fetchTreeSkillItem(ctx context.Context, target *GitHubTarget, ref, relPath string, client *http.Client) (Item, bool) {
+	rawURL := fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/%s/%s", target.Owner, target.Repo, ref, relPath)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return Item{}, false
+	}
+	req.Header.Set("User-Agent", version.UserAgent())
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return Item{}, false
+	}
+	if resp.StatusCode != http.StatusOK {
+		_ = resp.Body.Close()
+		return Item{}, false
 	}
 
-	if len(skillPaths) == 0 {
-		return nil, fmt.Errorf("no SKILL.md files discovered in %s/%s", target.Owner, target.Repo)
+	data, err := ReadBounded(resp.Body, 2<<20)
+	_ = resp.Body.Close()
+	if err != nil || len(data) == 0 {
+		return Item{}, false
 	}
 
-	manifest := &Manifest{
-		Version: "1.0.0",
-		Items:   make([]Item, 0, len(skillPaths)),
+	fm, _, _ := ParseFrontmatter(data)
+	if fm == nil {
+		fm = &Frontmatter{}
+	}
+	return buildTreeItem(target, ref, relPath, rawURL, data, fm), true
+}
+
+func buildTreeItem(target *GitHubTarget, ref, relPath, rawURL string, skillData []byte, fm *Frontmatter) Item {
+	dirPath := filepath.Dir(relPath)
+	if dirPath == "." {
+		dirPath = ""
 	}
 
-	for _, relPath := range skillPaths {
-		rawURL := fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/%s/%s", target.Owner, target.Repo, ref, relPath)
-		skillReq, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
-		if err != nil {
-			continue
-		}
-		skillReq.Header.Set("User-Agent", version.UserAgent())
-
-		skillResp, err := client.Do(skillReq)
-		if err != nil {
-			continue
-		}
-		if skillResp.StatusCode != http.StatusOK {
-			_ = skillResp.Body.Close()
-			continue
-		}
-
-		skillData, err := ReadBounded(skillResp.Body, 2<<20)
-		_ = skillResp.Body.Close()
-		if err != nil || len(skillData) == 0 {
-			continue
-		}
-
-		fm, _, _ := ParseFrontmatter(skillData)
-		if fm == nil {
-			fm = &Frontmatter{}
-		}
-
-		dirPath := filepath.Dir(relPath)
-		if dirPath == "." {
-			dirPath = ""
-		}
-
-		skillName := strings.TrimSpace(fm.Name)
-		if skillName == "" {
-			if dirPath != "" {
-				skillName = filepath.Base(dirPath)
-			} else {
-				skillName = target.Repo
-			}
-		}
-
-		sum := sha256.Sum256(skillData)
-		digest := hex.EncodeToString(sum[:])
-
-		githubTreeURL := fmt.Sprintf("https://github.com/%s/%s/tree/%s", target.Owner, target.Repo, ref)
+	skillName := strings.TrimSpace(fm.Name)
+	if skillName == "" {
 		if dirPath != "" {
-			githubTreeURL += "/" + dirPath
+			skillName = filepath.Base(dirPath)
+		} else {
+			skillName = target.Repo
 		}
-
-		category := ""
-		if fm.Metadata != nil {
-			category = fm.Metadata["category"]
-		}
-		if category == "" {
-			parts := strings.Split(relPath, "/")
-			if len(parts) >= 3 {
-				category = parts[len(parts)-3]
-			} else {
-				category = "agents"
-			}
-		}
-
-		item := Item{
-			ID:           skillName,
-			Name:         skillName,
-			Type:         ItemTypeSkill,
-			Description:  fm.Description,
-			Category:     category,
-			License:      fm.License,
-			AllowedTools: fm.AllowedTools,
-			Body:         string(skillData),
-			URL:          githubTreeURL,
-			RelativePath: relPath,
-			Digest:       digest,
-			Sha256:       digest,
-			Source:       fmt.Sprintf("github:%s/%s", target.Owner, target.Repo),
-			Metadata: map[string]string{
-				"origin":    target.FullRepoURL(),
-				"repo":      target.RepoString(),
-				"ref":       ref,
-				"canonical": rawURL,
-			},
-		}
-		if fm.Metadata != nil {
-			maps.Copy(item.Metadata, fm.Metadata)
-			if item.Metadata["version"] != "" {
-				item.Version = item.Metadata["version"]
-			}
-			if item.Metadata["author"] != "" {
-				item.Author = item.Metadata["author"]
-			}
-			if item.Metadata["tags"] != "" {
-				item.Tags = ParseTags(item.Metadata["tags"])
-			}
-		}
-		item.Normalize()
-		manifest.Items = append(manifest.Items, item)
 	}
 
-	return manifest, nil
+	sum := sha256.Sum256(skillData)
+	digest := hex.EncodeToString(sum[:])
+
+	item := Item{
+		ID:           skillName,
+		Name:         skillName,
+		Type:         ItemTypeSkill,
+		Description:  fm.Description,
+		Category:     treeItemCategory(fm, relPath),
+		License:      fm.License,
+		AllowedTools: fm.AllowedTools,
+		Body:         string(skillData),
+		URL:          treeItemURL(target, ref, dirPath),
+		RelativePath: relPath,
+		Digest:       digest,
+		Sha256:       digest,
+		Source:       fmt.Sprintf("github:%s/%s", target.Owner, target.Repo),
+		Metadata: map[string]string{
+			"origin":    target.FullRepoURL(),
+			"repo":      target.RepoString(),
+			"ref":       ref,
+			"canonical": rawURL,
+		},
+	}
+	if fm.Metadata != nil {
+		maps.Copy(item.Metadata, fm.Metadata)
+		if item.Metadata["version"] != "" {
+			item.Version = item.Metadata["version"]
+		}
+		if item.Metadata["author"] != "" {
+			item.Author = item.Metadata["author"]
+		}
+		if item.Metadata["tags"] != "" {
+			item.Tags = ParseTags(item.Metadata["tags"])
+		}
+	}
+	item.Normalize()
+	return item
+}
+
+func treeItemURL(target *GitHubTarget, ref, dirPath string) string {
+	url := fmt.Sprintf("https://github.com/%s/%s/tree/%s", target.Owner, target.Repo, ref)
+	if dirPath != "" {
+		url += "/" + dirPath
+	}
+	return url
+}
+
+func treeItemCategory(fm *Frontmatter, relPath string) string {
+	if fm.Metadata != nil {
+		if category := fm.Metadata["category"]; category != "" {
+			return category
+		}
+	}
+	parts := strings.Split(relPath, "/")
+	if len(parts) >= 3 {
+		return parts[len(parts)-3]
+	}
+	return "agents"
 }
 
 // FetchHTTPCatalog fetches a remote catalog manifest via HTTP GET.

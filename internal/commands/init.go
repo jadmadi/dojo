@@ -29,79 +29,126 @@ import (
 	"github.com/jadmadi/dojo/internal/state"
 )
 
+// initOptions holds the parsed flags for `dojo init`.
+type initOptions struct {
+	dir         string
+	category    string
+	description string
+	workspace   bool
+	force       bool
+	json        bool
+	raw         bool
+}
+
+// scaffoldFile is one generated file in a new skill package.
+type scaffoldFile struct {
+	rel     string
+	content string
+	perm    os.FileMode
+}
+
+var validSkillNameRegex = regexp.MustCompile(`^[a-z0-9]+([-_][a-z0-9]+)*$`)
+
 // RunInit scaffolds a new Agent Skill package with compliant SKILL.md frontmatter,
 // or initializes a multi-harness workspace (--workspace / -w).
 func (a *App) RunInit(args []string) int {
-	fs := flag.NewFlagSet("init", flag.ContinueOnError)
-	fs.SetOutput(a.Stderr)
-	var dirFlag, categoryFlag, descFlag string
-	var workspaceFlag, forceFlag, jsonFlag, rawFlag bool
-
-	fs.BoolVar(&workspaceFlag, "workspace", false, "Initialize current project workspace (.agents/skills, skills.json, and IDE harness projections)")
-	fs.BoolVar(&workspaceFlag, "w", false, "Initialize current project workspace (shorthand)")
-	fs.StringVar(&dirFlag, "dir", "", "Target parent directory (default: .agents/skills)")
-	fs.StringVar(&dirFlag, "d", "", "Target parent directory (shorthand)")
-	fs.StringVar(&categoryFlag, "category", "coding", "Skill category")
-	fs.StringVar(&categoryFlag, "c", "coding", "Skill category (shorthand)")
-	fs.StringVar(&descFlag, "description", "", "Skill description")
-	fs.BoolVar(&forceFlag, "force", false, "Overwrite existing files")
-	fs.BoolVar(&forceFlag, "f", false, "Overwrite existing files (shorthand)")
-	fs.BoolVar(&jsonFlag, "json", false, "Output in JSON format")
-	fs.BoolVar(&rawFlag, "raw", false, "Output in raw tab-separated format")
-
-	posArgs, err := parseFlagsWithArgs(fs, args)
-	if err != nil {
+	opts, posArgs, ok := a.parseInitArgs(args)
+	if !ok {
 		return ExitUsage
 	}
-	if workspaceFlag || (len(posArgs) == 1 && posArgs[0] == "workspace") {
-		return a.runWorkspaceInit(dirFlag, jsonFlag, rawFlag)
+	if opts.workspace || (len(posArgs) == 1 && posArgs[0] == "workspace") {
+		return a.runWorkspaceInit(opts.dir, opts.json, opts.raw)
 	}
 	if len(posArgs) == 0 {
 		_, _ = fmt.Fprintln(a.Stderr, "error: init requires a skill name (e.g. 'dojo init my-skill') or --workspace")
 		return ExitUsage
 	}
 
-	rawName := strings.TrimSpace(posArgs[0])
-	cleanName := filepath.Base(filepath.Clean(rawName))
-	if cleanName == "" || cleanName == "." || cleanName == ".." || strings.ContainsAny(cleanName, `/\`) {
-		_, _ = fmt.Fprintf(a.Stderr, "error: invalid skill name %q\n", rawName)
+	cleanName, ok := a.validateSkillName(posArgs[0])
+	if !ok {
 		return ExitUsage
 	}
 
-	validSkillNameRegex := regexp.MustCompile(`^[a-z0-9]+([-_][a-z0-9]+)*$`)
-	if !validSkillNameRegex.MatchString(cleanName) {
-		_, _ = fmt.Fprintf(a.Stderr, "error: invalid skill name %q: skill names must consist of lowercase alphanumeric characters and hyphens (e.g. 'my-custom-skill')\n", rawName)
-		return ExitUsage
-	}
-
-	parentDir := dirFlag
-	if parentDir == "" {
-		wd, _ := os.Getwd()
-		parentDir = filepath.Join(wd, ".agents", "skills")
-	}
-	skillDir := filepath.Join(parentDir, cleanName)
+	skillDir := filepath.Join(initParentDir(opts.dir), cleanName)
 	skillMDPath := filepath.Join(skillDir, "SKILL.md")
-
-	if _, err := os.Stat(skillMDPath); err == nil && !forceFlag {
+	if _, err := os.Stat(skillMDPath); err == nil && !opts.force {
 		_, _ = fmt.Fprintf(a.Stderr, "error: skill %q already exists at %s (pass -f/--force to overwrite)\n", cleanName, skillDir)
 		return ExitGeneral
 	}
 
-	if descFlag == "" {
-		descFlag = fmt.Sprintf("Specialized workflow and domain instructions for %s.", cleanName)
+	files := scaffoldFiles(cleanName, opts.description, opts.category)
+	if code := writeScaffold(skillDir, files); code != ExitSuccess {
+		return code
 	}
+	writeInitReport(a.Stdout, a.resolveMode(opts.json, opts.raw), cleanName, skillDir, files)
+	return ExitSuccess
+}
 
-	for _, sub := range []string{"scripts", "references", "evals"} {
-		if err := os.MkdirAll(filepath.Join(skillDir, sub), 0755); err != nil {
-			_, _ = fmt.Fprintf(a.Stderr, "error: creating directory %s: %v\n", sub, err)
-			return ExitGeneral
-		}
+func (a *App) parseInitArgs(args []string) (initOptions, []string, bool) {
+	opts := initOptions{category: "coding"}
+	fs := flag.NewFlagSet("init", flag.ContinueOnError)
+	fs.SetOutput(a.Stderr)
+
+	fs.BoolVar(&opts.workspace, "workspace", false, "Initialize current project workspace (.agents/skills, skills.json, and IDE harness projections)")
+	fs.BoolVar(&opts.workspace, "w", false, "Initialize current project workspace (shorthand)")
+	fs.StringVar(&opts.dir, "dir", "", "Target parent directory (default: .agents/skills)")
+	fs.StringVar(&opts.dir, "d", "", "Target parent directory (shorthand)")
+	fs.StringVar(&opts.category, "category", "coding", "Skill category")
+	fs.StringVar(&opts.category, "c", "coding", "Skill category (shorthand)")
+	fs.StringVar(&opts.description, "description", "", "Skill description")
+	fs.BoolVar(&opts.force, "force", false, "Overwrite existing files")
+	fs.BoolVar(&opts.force, "f", false, "Overwrite existing files (shorthand)")
+	fs.BoolVar(&opts.json, "json", false, "Output in JSON format")
+	fs.BoolVar(&opts.raw, "raw", false, "Output in raw tab-separated format")
+
+	posArgs, err := parseFlagsWithArgs(fs, args)
+	if err != nil {
+		return opts, nil, false
 	}
+	return opts, posArgs, true
+}
 
+// validateSkillName normalizes and validates the requested skill name.
+func (a *App) validateSkillName(raw string) (string, bool) {
+	trimmed := strings.TrimSpace(raw)
+	cleanName := filepath.Base(filepath.Clean(trimmed))
+	if cleanName == "" || cleanName == "." || cleanName == ".." || strings.ContainsAny(cleanName, `/\`) {
+		_, _ = fmt.Fprintf(a.Stderr, "error: invalid skill name %q\n", trimmed)
+		return "", false
+	}
+	if !validSkillNameRegex.MatchString(cleanName) {
+		_, _ = fmt.Fprintf(a.Stderr, "error: invalid skill name %q: skill names must consist of lowercase alphanumeric characters and hyphens (e.g. 'my-custom-skill')\n", trimmed)
+		return "", false
+	}
+	return cleanName, true
+}
+
+func initParentDir(dirFlag string) string {
+	if dirFlag != "" {
+		return dirFlag
+	}
+	wd, _ := os.Getwd()
+	return filepath.Join(wd, ".agents", "skills")
+}
+
+// scaffoldFiles builds the skill package contents in a stable order.
+func scaffoldFiles(cleanName, description, category string) []scaffoldFile {
+	if description == "" {
+		description = fmt.Sprintf("Specialized workflow and domain instructions for %s.", cleanName)
+	}
 	title := strings.ReplaceAll(cleanName, "-", " ")
 	title = strings.ToUpper(title[:1]) + title[1:]
 
-	skillMDContent := fmt.Sprintf(`---
+	return []scaffoldFile{
+		{rel: "SKILL.md", content: scaffoldSkillMD(cleanName, title, description, category), perm: 0644},
+		{rel: "references/guide.md", content: scaffoldReference(title, cleanName), perm: 0644},
+		{rel: "scripts/check.sh", content: scaffoldScript(cleanName), perm: 0755},
+		{rel: "evals/evals.json", content: scaffoldEvals(cleanName), perm: 0644},
+	}
+}
+
+func scaffoldSkillMD(cleanName, title, description, category string) string {
+	return fmt.Sprintf(`---
 name: %s
 description: %s
 license: Apache-2.0
@@ -124,11 +171,19 @@ metadata:
 1. Inspect the workspace context before making changes.
 2. Follow the guidelines in `+"`references/guide.md`"+`.
 3. Run helper scripts via `+"`dojo run %s check.sh`"+`.
-`, cleanName, descFlag, categoryFlag, cleanName, title, descFlag, cleanName, cleanName)
+`, cleanName, description, category, cleanName, title, description, cleanName, cleanName)
+}
 
-	refContent := fmt.Sprintf("# %s Reference Guide\n\nDetailed reference notes and examples for `%s`.\n", title, cleanName)
-	scriptContent := "#!/usr/bin/env bash\nset -euo pipefail\necho \"[" + cleanName + "] check passed\"\n"
-	evalsContent := fmt.Sprintf(`{
+func scaffoldReference(title, cleanName string) string {
+	return fmt.Sprintf("# %s Reference Guide\n\nDetailed reference notes and examples for `%s`.\n", title, cleanName)
+}
+
+func scaffoldScript(cleanName string) string {
+	return "#!/usr/bin/env bash\nset -euo pipefail\necho \"[" + cleanName + "] check passed\"\n"
+}
+
+func scaffoldEvals(cleanName string) string {
+	return fmt.Sprintf(`{
   "skill": %q,
   "evals": [
     {
@@ -141,28 +196,28 @@ metadata:
   ]
 }
 `, cleanName, cleanName)
+}
 
-	filesToCreate := map[string]struct {
-		content string
-		perm    os.FileMode
-	}{
-		"SKILL.md":            {skillMDContent, 0644},
-		"references/guide.md": {refContent, 0644},
-		"scripts/check.sh":    {scriptContent, 0755},
-		"evals/evals.json":    {evalsContent, 0644},
-	}
-
-	var createdFiles []string
-	for rel, spec := range filesToCreate {
-		target := filepath.Join(skillDir, filepath.FromSlash(rel))
-		if err := os.WriteFile(target, []byte(spec.content), spec.perm); err != nil {
-			_, _ = fmt.Fprintf(a.Stderr, "error: writing %s: %v\n", target, err)
+// writeScaffold creates the directories and files for a new skill.
+func writeScaffold(skillDir string, files []scaffoldFile) int {
+	for _, sub := range []string{"scripts", "references", "evals"} {
+		if err := os.MkdirAll(filepath.Join(skillDir, sub), 0755); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "error: creating directory %s: %v\n", sub, err)
 			return ExitGeneral
 		}
-		createdFiles = append(createdFiles, rel)
 	}
 
-	mode := a.resolveMode(jsonFlag, rawFlag)
+	for _, f := range files {
+		target := filepath.Join(skillDir, filepath.FromSlash(f.rel))
+		if err := os.WriteFile(target, []byte(f.content), f.perm); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "error: writing %s: %v\n", target, err)
+			return ExitGeneral
+		}
+	}
+	return ExitSuccess
+}
+
+func writeInitReport(w interface{ Write([]byte) (int, error) }, mode OutputMode, cleanName, skillDir string, files []scaffoldFile) {
 	switch mode {
 	case OutputModeJSON:
 		res := struct {
@@ -174,25 +229,31 @@ metadata:
 			Name:   cleanName,
 			Path:   skillDir,
 			Status: "initialized",
-			Files:  createdFiles,
+			Files:  scaffoldRelPaths(files),
 		}
-		enc := json.NewEncoder(a.Stdout)
+		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
 		_ = enc.Encode(res)
 	case OutputModeRaw:
-		_, _ = fmt.Fprintf(a.Stdout, "initialized\t%s\t%s\t%d\n",
+		_, _ = fmt.Fprintf(w, "initialized\t%s\t%s\t%d\n",
 			sanitizeTSVField(cleanName),
 			sanitizeTSVField(skillDir),
-			len(createdFiles),
+			len(files),
 		)
 	default:
-		_, _ = fmt.Fprintf(a.Stdout, "✓ Initialized skill %q at %s\n", cleanName, skillDir)
-		_, _ = fmt.Fprintln(a.Stdout, "  • SKILL.md")
-		_, _ = fmt.Fprintln(a.Stdout, "  • references/guide.md")
-		_, _ = fmt.Fprintln(a.Stdout, "  • scripts/check.sh")
-		_, _ = fmt.Fprintln(a.Stdout, "  • evals/evals.json")
+		_, _ = fmt.Fprintf(w, "✓ Initialized skill %q at %s\n", cleanName, skillDir)
+		for _, rel := range scaffoldRelPaths(files) {
+			_, _ = fmt.Fprintf(w, "  • %s\n", rel)
+		}
 	}
-	return ExitSuccess
+}
+
+func scaffoldRelPaths(files []scaffoldFile) []string {
+	paths := make([]string, 0, len(files))
+	for _, f := range files {
+		paths = append(paths, f.rel)
+	}
+	return paths
 }
 
 func (a *App) runWorkspaceInit(dirFlag string, jsonFlag, rawFlag bool) int {
@@ -271,4 +332,3 @@ func (a *App) runWorkspaceInit(dirFlag string, jsonFlag, rawFlag bool) int {
 	}
 	return ExitSuccess
 }
-

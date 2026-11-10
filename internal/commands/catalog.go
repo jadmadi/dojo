@@ -62,26 +62,28 @@ ALIASES:
 	}
 }
 
+// catalogAddOptions holds the parsed flags for `dojo catalog add`.
+type catalogAddOptions struct {
+	name    string
+	ref     string
+	subpath string
+	refresh bool
+	json    bool
+	raw     bool
+}
+
+// resolvedCatalog is a fetched catalog plus the metadata saved with it.
+type resolvedCatalog struct {
+	manifest *catalog.Manifest
+	catType  string
+	catName  string
+	catURL   string
+	etag     string
+}
+
 func (a *App) runCatalogAdd(args []string) int {
-	fs := flag.NewFlagSet("catalog add", flag.ContinueOnError)
-	fs.SetOutput(a.Stderr)
-	var nameFlag, refFlag, subpathFlag string
-	var refreshFlag, jsonFlag, rawFlag bool
-
-	fs.StringVar(&nameFlag, "name", "", "Custom alias/name for the catalog")
-	fs.StringVar(&nameFlag, "n", "", "Custom alias/name for the catalog (shorthand)")
-	fs.StringVar(&refFlag, "ref", "main", "Branch or tag ref for git repository")
-	fs.StringVar(&refFlag, "b", "main", "Branch or tag ref (shorthand)")
-	fs.StringVar(&refFlag, "branch", "main", "Branch or tag ref (alias)")
-	fs.StringVar(&subpathFlag, "subpath", "", "Subpath directory inside repository")
-	fs.StringVar(&subpathFlag, "p", "", "Subpath directory inside repository (shorthand)")
-	fs.BoolVar(&refreshFlag, "refresh", false, "Force fresh download bypassing cache")
-	fs.BoolVar(&refreshFlag, "r", false, "Force fresh download (shorthand)")
-	fs.BoolVar(&jsonFlag, "json", false, "Output in JSON format")
-	fs.BoolVar(&rawFlag, "raw", false, "Output in raw format")
-
-	posArgs, err := parseFlagsWithArgs(fs, args)
-	if err != nil {
+	opts, posArgs, ok := a.parseCatalogAddArgs(args)
+	if !ok {
 		return ExitUsage
 	}
 	if len(posArgs) == 0 {
@@ -90,160 +92,224 @@ func (a *App) runCatalogAdd(args []string) int {
 	}
 
 	source := posArgs[0]
-	mode := a.resolveMode(jsonFlag, rawFlag)
-
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	var manifest *catalog.Manifest
-	var catType string
-	var catName string
-	var catURL string
-	var etag string
-
-	// 1. Check if source is a local filesystem path
-	isExplicitLocalPath := strings.HasPrefix(source, ".") || strings.HasPrefix(source, "/") || strings.HasPrefix(source, "~") || strings.HasPrefix(source, `\`)
-	if info, err := os.Stat(source); err == nil {
-		if !info.IsDir() {
-			_, _ = fmt.Fprintf(a.Stderr, "error: local catalog source %q is a file, expected a directory\n", source)
-			return ExitUsage
-		}
-		catType = state.CatalogTypeLocal
-		absPath, _ := filepath.Abs(source)
-		catURL = absPath
-		catName = nameFlag
-		if catName == "" {
-			catName = filepath.Base(absPath)
-		}
-		m, err := catalog.DiscoverLocalCatalog(source)
-		if err != nil {
-			_, _ = fmt.Fprintf(a.Stderr, "error: discovering local catalog %s: %v\n", source, err)
-			return MapErrorToExitCode(err)
-		}
-		manifest = m
-	} else if isExplicitLocalPath {
-		_, _ = fmt.Fprintf(a.Stderr, "error: local catalog directory %q not found: %v\n", source, err)
-		return MapErrorToExitCode(err)
-	} else if (strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://")) && (!strings.Contains(source, "github.com") || strings.HasSuffix(strings.ToLower(source), ".json")) {
-		// 2. HTTP Manifest URL
-		catType = state.CatalogTypeHTTP
-		catURL = source
-		catName = nameFlag
-		if catName == "" {
-			catName = strings.TrimPrefix(strings.TrimPrefix(source, "https://"), "http://")
-			catName = strings.TrimSuffix(catName, "/.well-known/agent-skills/index.json")
-			catName = strings.TrimSuffix(catName, "/index.json")
-			catName = strings.TrimSuffix(catName, "/catalog.json")
-			catName = strings.TrimSuffix(catName, "/")
-		}
-		if refreshFlag {
-			_ = catalog.DeleteNamedCatalogCacheIn(a.cacheRootDir(), catName)
-		}
-		m, tag, err := catalog.FetchHTTPCatalog(ctx, source, a.getHTTPClient())
-		if err != nil {
-			_, _ = fmt.Fprintf(a.Stderr, "error: fetching http catalog %s: %v\n", source, err)
-			return MapErrorToExitCode(err)
-		}
-		manifest = m
-		etag = tag
-	} else {
-		// 3. GitHub repository
-		target, ok := catalog.ParseGitHubTarget(source)
-		if !ok {
-			_, _ = fmt.Fprintf(a.Stderr, "error: invalid catalog source %q. Expected GitHub repository (e.g. google/skills), HTTP URL, or local directory path.\n", source)
-			return ExitUsage
-		}
-		if refFlag != "main" && refFlag != "" {
-			target.Ref = refFlag
-		}
-		if subpathFlag != "" {
-			target.Subpath = subpathFlag
-		}
-		catType = state.CatalogTypeGitHub
-		catURL = target.FullRepoURL()
-		catName = nameFlag
-		if catName == "" {
-			catName = target.RepoString()
-			if target.Subpath != "" {
-				catName += "/" + target.Subpath
-			}
-		}
-		if refreshFlag {
-			_ = catalog.DeleteNamedCatalogCacheIn(a.cacheRootDir(), catName)
-		}
-
-		m, err := catalog.FetchGitHubCatalog(ctx, target, a.getHTTPClient())
-		if err != nil {
-			_, _ = fmt.Fprintf(a.Stderr, "error: fetching github catalog %s: %v\n", source, err)
-			return MapErrorToExitCode(err)
-		}
-		manifest = m
+	res, code := a.resolveCatalogSource(ctx, source, opts)
+	if code != ExitSuccess {
+		return code
 	}
-
-	if manifest == nil || len(manifest.Items) == 0 {
+	if res.manifest == nil || len(res.manifest.Items) == 0 {
 		_, _ = fmt.Fprintf(a.Stderr, "error: no skills found in catalog %q\n", source)
 		return ExitNotFound
 	}
 
-	// Save cache
-	if err := catalog.SaveNamedCatalogCacheIn(a.cacheRootDir(), catName, catURL, *manifest, etag); err != nil {
+	a.persistAddedCatalog(res, source, opts)
+	a.writeCatalogAddReport(res, source, opts)
+	return ExitSuccess
+}
+
+func (a *App) parseCatalogAddArgs(args []string) (catalogAddOptions, []string, bool) {
+	opts := catalogAddOptions{ref: "main"}
+	fs := flag.NewFlagSet("catalog add", flag.ContinueOnError)
+	fs.SetOutput(a.Stderr)
+
+	fs.StringVar(&opts.name, "name", "", "Custom alias/name for the catalog")
+	fs.StringVar(&opts.name, "n", "", "Custom alias/name for the catalog (shorthand)")
+	fs.StringVar(&opts.ref, "ref", "main", "Branch or tag ref for git repository")
+	fs.StringVar(&opts.ref, "b", "main", "Branch or tag ref (shorthand)")
+	fs.StringVar(&opts.ref, "branch", "main", "Branch or tag ref (alias)")
+	fs.StringVar(&opts.subpath, "subpath", "", "Subpath directory inside repository")
+	fs.StringVar(&opts.subpath, "p", "", "Subpath directory inside repository (shorthand)")
+	fs.BoolVar(&opts.refresh, "refresh", false, "Force fresh download bypassing cache")
+	fs.BoolVar(&opts.refresh, "r", false, "Force fresh download (shorthand)")
+	fs.BoolVar(&opts.json, "json", false, "Output in JSON format")
+	fs.BoolVar(&opts.raw, "raw", false, "Output in raw format")
+
+	posArgs, err := parseFlagsWithArgs(fs, args)
+	if err != nil {
+		return opts, nil, false
+	}
+	return opts, posArgs, true
+}
+
+// resolveCatalogSource dispatches on local directory, HTTP manifest, or GitHub.
+func (a *App) resolveCatalogSource(ctx context.Context, source string, opts catalogAddOptions) (resolvedCatalog, int) {
+	isExplicitLocalPath := strings.HasPrefix(source, ".") ||
+		strings.HasPrefix(source, "/") ||
+		strings.HasPrefix(source, "~") ||
+		strings.HasPrefix(source, `\`)
+
+	info, statErr := os.Stat(source)
+	switch {
+	case statErr == nil:
+		if !info.IsDir() {
+			_, _ = fmt.Fprintf(a.Stderr, "error: local catalog source %q is a file, expected a directory\n", source)
+			return resolvedCatalog{}, ExitUsage
+		}
+		return a.resolveLocalCatalog(source, opts.name)
+	case isExplicitLocalPath:
+		_, _ = fmt.Fprintf(a.Stderr, "error: local catalog directory %q not found: %v\n", source, statErr)
+		return resolvedCatalog{}, MapErrorToExitCode(statErr)
+	case isHTTPManifestSource(source):
+		return a.resolveHTTPCatalog(ctx, source, opts)
+	default:
+		return a.resolveGitHubCatalog(ctx, source, opts)
+	}
+}
+
+func isHTTPManifestSource(source string) bool {
+	isHTTP := strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://")
+	if !isHTTP {
+		return false
+	}
+	return !strings.Contains(source, "github.com") || strings.HasSuffix(strings.ToLower(source), ".json")
+}
+
+func (a *App) resolveLocalCatalog(source, nameFlag string) (resolvedCatalog, int) {
+	absPath, _ := filepath.Abs(source)
+	manifest, err := catalog.DiscoverLocalCatalog(source)
+	if err != nil {
+		_, _ = fmt.Fprintf(a.Stderr, "error: discovering local catalog %s: %v\n", source, err)
+		return resolvedCatalog{}, MapErrorToExitCode(err)
+	}
+
+	name := nameFlag
+	if name == "" {
+		name = filepath.Base(absPath)
+	}
+	return resolvedCatalog{
+		manifest: manifest,
+		catType:  state.CatalogTypeLocal,
+		catName:  name,
+		catURL:   absPath,
+	}, ExitSuccess
+}
+
+func (a *App) resolveHTTPCatalog(ctx context.Context, source string, opts catalogAddOptions) (resolvedCatalog, int) {
+	name := opts.name
+	if name == "" {
+		name = deriveHTTPCatalogName(source)
+	}
+	if opts.refresh {
+		_ = catalog.DeleteNamedCatalogCacheIn(a.cacheRootDir(), name)
+	}
+
+	manifest, etag, err := catalog.FetchHTTPCatalog(ctx, source, a.getHTTPClient())
+	if err != nil {
+		_, _ = fmt.Fprintf(a.Stderr, "error: fetching http catalog %s: %v\n", source, err)
+		return resolvedCatalog{}, MapErrorToExitCode(err)
+	}
+	return resolvedCatalog{
+		manifest: manifest,
+		catType:  state.CatalogTypeHTTP,
+		catName:  name,
+		catURL:   source,
+		etag:     etag,
+	}, ExitSuccess
+}
+
+func deriveHTTPCatalogName(source string) string {
+	name := strings.TrimPrefix(strings.TrimPrefix(source, "https://"), "http://")
+	name = strings.TrimSuffix(name, "/.well-known/agent-skills/index.json")
+	name = strings.TrimSuffix(name, "/index.json")
+	name = strings.TrimSuffix(name, "/catalog.json")
+	return strings.TrimSuffix(name, "/")
+}
+
+func (a *App) resolveGitHubCatalog(ctx context.Context, source string, opts catalogAddOptions) (resolvedCatalog, int) {
+	target, ok := catalog.ParseGitHubTarget(source)
+	if !ok {
+		_, _ = fmt.Fprintf(a.Stderr, "error: invalid catalog source %q. Expected GitHub repository (e.g. google/skills), HTTP URL, or local directory path.\n", source)
+		return resolvedCatalog{}, ExitUsage
+	}
+	if opts.ref != "main" && opts.ref != "" {
+		target.Ref = opts.ref
+	}
+	if opts.subpath != "" {
+		target.Subpath = opts.subpath
+	}
+
+	name := opts.name
+	if name == "" {
+		name = target.RepoString()
+		if target.Subpath != "" {
+			name += "/" + target.Subpath
+		}
+	}
+	if opts.refresh {
+		_ = catalog.DeleteNamedCatalogCacheIn(a.cacheRootDir(), name)
+	}
+
+	manifest, err := catalog.FetchGitHubCatalog(ctx, target, a.getHTTPClient())
+	if err != nil {
+		_, _ = fmt.Fprintf(a.Stderr, "error: fetching github catalog %s: %v\n", source, err)
+		return resolvedCatalog{}, MapErrorToExitCode(err)
+	}
+	return resolvedCatalog{
+		manifest: manifest,
+		catType:  state.CatalogTypeGitHub,
+		catName:  name,
+		catURL:   target.FullRepoURL(),
+	}, ExitSuccess
+}
+
+// persistAddedCatalog writes the cache and the durable state record.
+func (a *App) persistAddedCatalog(res resolvedCatalog, source string, opts catalogAddOptions) {
+	if err := catalog.SaveNamedCatalogCacheIn(a.cacheRootDir(), res.catName, res.catURL, *res.manifest, res.etag); err != nil {
 		a.logError("saving catalog cache: %v", err)
 	}
 
-	// Save state record
-	st := a.loadState()
+	now := time.Now().UTC()
 	rec := state.CatalogRecord{
-		Name:       catName,
-		Type:       catType,
+		Name:       res.catName,
+		Type:       res.catType,
 		Source:     source,
-		URL:        catURL,
-		Ref:        refFlag,
-		Subpath:    subpathFlag,
-		SkillCount: len(manifest.Items),
-		AddedAt:    time.Now().UTC(),
-		UpdatedAt:  time.Now().UTC(),
+		URL:        res.catURL,
+		Ref:        opts.ref,
+		Subpath:    opts.subpath,
+		SkillCount: len(res.manifest.Items),
+		AddedAt:    now,
+		UpdatedAt:  now,
 	}
+	st := a.loadState()
 	st.AddCatalog(rec)
 	a.saveState(st)
 
-	// Dynamically register into current store
-	a.Store.AddCatalogManifest(catName, manifest)
+	a.Store.AddCatalogManifest(res.catName, res.manifest)
+}
 
-	switch mode {
+func (a *App) writeCatalogAddReport(res resolvedCatalog, source string, opts catalogAddOptions) {
+	switch a.resolveMode(opts.json, opts.raw) {
 	case OutputModeJSON:
-		type AddResult struct {
+		enc := json.NewEncoder(a.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(struct {
 			Name       string `json:"name"`
 			Type       string `json:"type"`
 			Source     string `json:"source"`
 			URL        string `json:"url,omitempty"`
 			SkillCount int    `json:"skill_count"`
 			Status     string `json:"status"`
-		}
-		res := AddResult{
-			Name:       catName,
-			Type:       catType,
+		}{
+			Name:       res.catName,
+			Type:       res.catType,
 			Source:     source,
-			URL:        catURL,
-			SkillCount: len(manifest.Items),
+			URL:        res.catURL,
+			SkillCount: len(res.manifest.Items),
 			Status:     "added",
-		}
-		enc := json.NewEncoder(a.Stdout)
-		enc.SetIndent("", "  ")
-		_ = enc.Encode(res)
-		return ExitSuccess
+		})
 	case OutputModeRaw:
 		_, _ = fmt.Fprintf(a.Stdout, "added\t%s\t%s\t%d\n",
-			sanitizeTSVField(catName),
-			sanitizeTSVField(catType),
-			len(manifest.Items),
+			sanitizeTSVField(res.catName),
+			sanitizeTSVField(res.catType),
+			len(res.manifest.Items),
 		)
-		return ExitSuccess
 	default:
-		_, _ = fmt.Fprintf(a.Stdout, "✓ Added catalog %q (%s, %d skills indexed)\n", catName, catType, len(manifest.Items))
-		for _, it := range manifest.Items {
+		_, _ = fmt.Fprintf(a.Stdout, "✓ Added catalog %q (%s, %d skills indexed)\n", res.catName, res.catType, len(res.manifest.Items))
+		for _, it := range res.manifest.Items {
 			_, _ = fmt.Fprintf(a.Stdout, "  • %-20s [%s] %s\n", it.Name, it.Category, it.Description)
 		}
-		return ExitSuccess
 	}
 }
 

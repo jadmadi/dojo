@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Remaining Handler Refactor**: Split `InstallSkillContext`, `RunDoctor`, `runCatalogAdd`, `probeGitHubCatalogRef`, `RunList`, and `RunInit` into named helpers with unchanged flags, output, and exit codes.
+- **Deterministic Scaffolding**: `dojo init` now writes and reports generated files in a fixed order instead of map iteration order.
+
 ## [1.4.0] - 2026-11-10
 
 ### Changed
