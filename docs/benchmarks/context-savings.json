@@ -1,0 +1,38 @@
+{
+  "corpus": "internal/catalog/testdata/bench-skills",
+  "fixtures": 4,
+  "ceiling_percent": 45,
+  "max_largest_leaf_percent": 19.1,
+  "median_largest_leaf_percent": 15.91,
+  "note": "Synthetic fixtures, regenerated with: go test ./internal/catalog -run TestContextSavings -update",
+  "skills": [
+    {
+      "skill": "data-pipeline",
+      "body_bytes": 1866,
+      "leaf_sections": 7,
+      "largest_leaf_bytes": 299,
+      "largest_leaf_percent": 16.02
+    },
+    {
+      "skill": "go-service",
+      "body_bytes": 2566,
+      "leaf_sections": 7,
+      "largest_leaf_bytes": 490,
+      "largest_leaf_percent": 19.1
+    },
+    {
+      "skill": "incident-response",
+      "body_bytes": 1823,
+      "leaf_sections": 7,
+      "largest_leaf_bytes": 273,
+      "largest_leaf_percent": 14.98
+    },
+    {
+      "skill": "react-ui",
+      "body_bytes": 1886,
+      "leaf_sections": 7,
+      "largest_leaf_bytes": 298,
+      "largest_leaf_percent": 15.8
+    }
+  ]
+}
