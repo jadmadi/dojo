@@ -4,7 +4,7 @@ description: >
   "Enter the Dojo!": Agent Skills Training Ground, Native MCP Gateway, and Multi-Harness
   Continuity Engine. Activate this skill to discover skills with hybrid BM25+RRF search,
   inspect Markdown section TOCs (`dojo toc`), JIT load specific #sections or full skills
-  with dependency graphs (`dojo load`), bi-directionally synchronize skills across Antigravity/Claude/Cursor/Windsurf/OpenCode/Sila
+  with dependency graphs (`dojo load`), bi-directionally synchronize skills across Antigravity/Claude/Cursor/Devin/OpenCode/Sila
   (`dojo sync` / `dojo sila`), link a Personal Skills Registry and sync portable `skills.json` profiles and local commands/skills between local machines and `agy-vm` (`dojo profile link|sync|pull|push|apply`),
   initialize workspaces (`dojo init --workspace`), scaffold and audit skills (`dojo init` / `dojo doctor`),
   run companion scripts (`dojo run`), or expose Dojo as a native MCP server (`dojo mcp`).
@@ -13,7 +13,7 @@ metadata:
   category: agents
   tags: "dojo, gateway, mcp, multi-harness, antigravity, sila, profile, agy-vm, agent-skills, discovery, search, catalog, cli"
   author: Jad Madi (github.com/jadmadi)
-  version: "1.5.1"
+  version: "1.6.0"
   catalog: https://github.com/jadmadi/dojo
 ---
 
@@ -46,10 +46,10 @@ dojo load fullstack-go --with-deps
 
 `dojo` reconciles newly created or edited skills from any harness back into `.agents/skills/<name>/SKILL.md` (including reverse-transpiling Cursor `.mdc` rules) and projects canonical skills across all active harnesses:
 
-- **Antigravity (Desktop & CLI)**: `.gemini/skills/<name>` or `.antigravity/skills/<name>`
+- **Antigravity (Desktop & CLI)**: `.agents/skills/<name>` in a workspace, `~/.gemini/config/skills/<name>` globally
 - **Claude Code**: `.claude/skills/<name>`
-- **Cursor**: `.cursor/rules/<name>.mdc` (bi-directional `.mdc` <-> `SKILL.md` conversion)
-- **Windsurf**: `.windsurf/rules/<name>.md`
+- **Cursor**: `.cursor/skills/<name>` (`.cursor/rules/<name>.mdc` remains available with `--target cursor-rules`)
+- **Devin (formerly Windsurf)**: `.devin/skills/<name>` (`windsurf` is an alias)
 - **OpenCode**: `.opencode/skills/<name>`
 - **Sila**: `.sila/skills/<name>`
 

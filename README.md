@@ -2,7 +2,7 @@
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/jadmadi/dojo.svg)](https://pkg.go.dev/github.com/jadmadi/dojo)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/badge/release-v1.5.1-green.svg)](https://github.com/jadmadi/dojo/releases)
+[![Release](https://img.shields.io/badge/release-v1.6.0-green.svg)](https://github.com/jadmadi/dojo/releases)
 
 Dojo gives agents less to read and gives you one place to keep skills.
 
@@ -115,10 +115,11 @@ canonical copy outward. Reconciliation is bi-directional by default; pass
 | Target (`--target`) | Projection path | Harness |
 | :--- | :--- | :--- |
 | `agents` | `.agents/skills/<name>/SKILL.md` | Universal canonical store |
-| `antigravity` / `gemini` | `.gemini/skills/<name>` or `.antigravity/skills/<name>` | Antigravity Desktop and CLI |
+| `antigravity` / `gemini` | `.agents/skills/<name>/SKILL.md` in a workspace, `~/.gemini/config/skills/<name>` globally | Antigravity Desktop and CLI |
 | `claude` | `.claude/skills/<name>/SKILL.md` | Claude Code |
-| `cursor` | `.cursor/rules/<name>.mdc` | Cursor, with `.mdc` to `SKILL.md` transpilation |
-| `windsurf` | `.windsurf/rules/<name>.md` | Windsurf |
+| `cursor` | `.cursor/skills/<name>/SKILL.md` | Cursor |
+| `cursor-rules` | `.cursor/rules/<name>.mdc` | Cursor rule files, opt-in |
+| `devin` | `.devin/skills/<name>/SKILL.md` | Devin, formerly Windsurf (`windsurf` is an alias) |
 | `opencode` | `.opencode/skills/<name>/SKILL.md` | OpenCode |
 | `sila` | `.sila/skills/<name>/SKILL.md` | Sila continuity engine |
 

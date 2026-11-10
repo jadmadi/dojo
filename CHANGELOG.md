@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-11-10
+
+### Changed
+- **Cursor Target Writes a Skill**: `cursor` now projects to `.cursor/skills/<name>/SKILL.md`, which Cursor loads as a skill. The previous `.cursor/rules/<name>.mdc` output is still available as the explicit `cursor-rules` target, but it is no longer written by `all` or `auto`. Rule files are rules, not skills, so they bypassed section-level loading.
+- **Windsurf Target Renamed to Devin**: `windsurf` and `codeium` now resolve to `devin`, which projects to `.devin/skills/<name>/SKILL.md`. Legacy `.windsurf/rules/*.md` files are still imported during reconciliation.
+- **Antigravity Paths Corrected**: Workspace projection resolves to the canonical `.agents/skills/<name>/SKILL.md` that Antigravity reads, and global projection writes `~/.gemini/config/skills/<name>/SKILL.md`. The undocumented `.gemini/skills` and `.antigravity/skills` paths are no longer written.
+
+### Added
+- **`devin` Target**: First-class Devin projection, with `windsurf` kept as an alias.
+- **`cursor-rules` Target**: Opt-in `.cursor/rules/<name>.mdc` projection for users who still want Cursor rules.
+
 ## [1.5.1] - 2026-11-10
 
 ### Added

@@ -2,6 +2,13 @@
 
 This backlog tracks roadmap items and completed releases for `dojo` (`github.com/jadmadi/dojo`).
 
+## Completed (`v1.6.0` — Harness Path Correction)
+
+- [x] **Cursor Skill Path**: `cursor` projects `.cursor/skills/<name>/SKILL.md`; `.mdc` output moved to the explicit `cursor-rules` target.
+- [x] **Devin Target**: `devin` projects `.devin/skills/<name>/SKILL.md`; `windsurf` and `codeium` alias it, and legacy `.windsurf/rules` remains import-only.
+- [x] **Antigravity Paths**: workspace uses canonical `.agents/skills`, global uses `~/.gemini/config/skills`.
+- [x] **Tests**: projection, alias, opt-in rule, and global path coverage in `internal/harness/sync_test.go`.
+
 ## Completed (`v1.5.0` — Agent-First MCP Surface & Dry-Run Previews)
 
 - [x] **Structured MCP Results**: every tool returns JSON text plus `structuredContent` matching a published `outputSchema`; `dojo_run` keeps raw script output.

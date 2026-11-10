@@ -1,7 +1,7 @@
 {
   "$schema": "https://jadmadi.net/schemas/project.schema.json",
   // Timestamp of the last metadata revision (Format: YY-MM-DD-HH-MM)
-  "lastEdit": "26-11-10-13-37",
+  "lastEdit": "26-11-10-14-44",
 
   // Unique identifier matching the project URL slug on jadmadi.net
   "id": "dojo",
@@ -13,7 +13,7 @@
   "tagline": "Section-level Agent Skills CLI and MCP server that streams only the context an agent needs",
 
   // Semantic version
-  "version": "1.5.1",
+  "version": "1.6.0",
 
   // 2-3 sentence executive summary explaining what it does, why it exists, and zero-bullshit proof
   "summary": "A static Go CLI and stdio MCP server for discovering, streaming, auditing, and synchronizing Agent Skills. Agents inspect a skill's table of contents, load one section instead of the whole file, resolve dependencies in topological order, and project skills across six coding harnesses. Catalogs are verified with SHA-256 digests before anything is installed.",
@@ -73,7 +73,7 @@
     "Section-level paging: `dojo toc` lists headings with byte sizes or refreshes with `-u/--update`, and `dojo load <skill>#<section>` streams one section, with a benchmarked 45 percent ceiling enforced by tests",
     "Hybrid BM25 and reciprocal rank fusion search across federated catalogs",
     "Dependency graph with topological resolution and cycle detection (`--with-deps`)",
-    "Bi-directional sync across Antigravity, Claude Code, Cursor, Windsurf, OpenCode, and Sila",
+    "Bi-directional sync across Antigravity, Claude Code, Cursor, Devin (formerly Windsurf), OpenCode, and Sila, with Cursor rule files as an opt-in target",
     "Personal Skills Registry that synchronizes skills.json between a laptop and a cloud VM",
     "Cloudflare Agent Skills Discovery RFC v0.2.0 support with SHA-256 digest verification",
     "Native stdio MCP server exposing 8 tools with structured output, annotations, and dry-run previews: find, toc, load, run, learn, doctor, sync, and profile",
@@ -89,7 +89,7 @@
     },
     {
       "question": "Which coding agents does Dojo support?",
-      "answer": "Antigravity (Desktop and CLI), Claude Code, Cursor, Windsurf, OpenCode, and Sila, with .agents/skills as the canonical store."
+      "answer": "Antigravity (Desktop and CLI), Claude Code, Cursor, Devin (formerly Windsurf), OpenCode, and Sila, with .agents/skills as the canonical store."
     },
     {
       "question": "What does the MCP server expose?",
