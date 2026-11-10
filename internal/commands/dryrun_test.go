@@ -73,7 +73,7 @@ func TestSyncDryRunPlansWithoutWriting(t *testing.T) {
 	if !strings.Contains(stdout.String(), `"status": "planned"`) {
 		t.Errorf("expected planned projection, got:\n%s", stdout.String())
 	}
-	for _, harnessDir := range []string{".claude", ".cursor", ".windsurf", ".gemini", ".opencode"} {
+	for _, harnessDir := range []string{".claude", ".cursor", ".devin", ".gemini", ".opencode"} {
 		if _, err := os.Stat(filepath.Join(workDir, harnessDir)); err == nil {
 			t.Errorf("sync --dry-run wrote %s", harnessDir)
 		}

@@ -28,13 +28,14 @@ import (
 type Target string
 
 const (
-	TargetAgents   Target = "agents"   // .agents/skills/<name>/SKILL.md (Universal standard)
-	TargetClaude   Target = "claude"   // .claude/skills/<name>/SKILL.md (Claude Code)
-	TargetCursor   Target = "cursor"   // .cursor/rules/<name>.mdc (Cursor)
-	TargetWindsurf Target = "windsurf" // .windsurf/rules/<name>.md (Windsurf)
-	TargetGemini   Target = "gemini"   // .gemini/skills/<name>/SKILL.md or .antigravity/skills (Antigravity Desktop & CLI)
-	TargetOpenCode Target = "opencode" // .opencode/skills/<name>/SKILL.md (OpenCode)
-	TargetSila     Target = "sila"     // .sila/skills/<name>/SKILL.md (Sila)
+	TargetAgents      Target = "agents"       // .agents/skills/<name>/SKILL.md (Universal standard)
+	TargetClaude      Target = "claude"       // .claude/skills/<name>/SKILL.md (Claude Code)
+	TargetCursor      Target = "cursor"       // .cursor/skills/<name>/SKILL.md (Cursor)
+	TargetCursorRules Target = "cursor-rules" // .cursor/rules/<name>.mdc (legacy opt-in)
+	TargetDevin       Target = "devin"        // .devin/skills/<name>/SKILL.md (Devin, formerly Windsurf)
+	TargetGemini      Target = "gemini"       // .agents/skills in a workspace, ~/.gemini/config/skills globally (Antigravity)
+	TargetOpenCode    Target = "opencode"     // .opencode/skills/<name>/SKILL.md (OpenCode)
+	TargetSila        Target = "sila"         // .sila/skills/<name>/SKILL.md (Sila)
 )
 
 // AllTargets lists all supported agent harnesses in deterministic order.
@@ -42,7 +43,7 @@ var AllTargets = []Target{
 	TargetAgents,
 	TargetClaude,
 	TargetCursor,
-	TargetWindsurf,
+	TargetDevin,
 	TargetGemini,
 	TargetOpenCode,
 	TargetSila,
@@ -84,8 +85,10 @@ func ParseTargets(spec string, rootDir string) ([]Target, error) {
 			t = TargetClaude
 		case "cursor":
 			t = TargetCursor
-		case "windsurf", "codeium":
-			t = TargetWindsurf
+		case "cursor-rules", "cursor-mdc":
+			t = TargetCursorRules
+		case "devin", "windsurf", "codeium":
+			t = TargetDevin
 		case "gemini", "agy", "antigravity":
 			t = TargetGemini
 		case "opencode", "oc":
@@ -95,7 +98,7 @@ func ParseTargets(spec string, rootDir string) ([]Target, error) {
 		case "all":
 			return append([]Target(nil), AllTargets...), nil
 		default:
-			return nil, fmt.Errorf("unknown harness target %q (valid: all, auto, agents, claude, cursor, windsurf, gemini, opencode, sila)", p)
+			return nil, fmt.Errorf("unknown harness target %q (valid: all, auto, agents, claude, cursor, cursor-rules, devin, gemini, opencode, sila)", p)
 		}
 		if !seen[t] {
 			seen[t] = true
@@ -118,8 +121,9 @@ func DetectTargets(rootDir string) []Target {
 		{"CLAUDE.md", TargetClaude},
 		{".cursor", TargetCursor},
 		{".cursorrules", TargetCursor},
-		{".windsurf", TargetWindsurf},
-		{".windsurfrules", TargetWindsurf},
+		{".devin", TargetDevin},
+		{".windsurf", TargetDevin},
+		{".windsurfrules", TargetDevin},
 		{".gemini", TargetGemini},
 		{"GEMINI.md", TargetGemini},
 		{".antigravity", TargetGemini},
@@ -211,9 +215,20 @@ func SyncSkill(skillName, sourceDir, rootDir string, targets []Target) []Project
 			results = append(results, projectSkillDirectory(skillName, string(target), sourceDir, destDir))
 
 		case TargetGemini:
-			destDir := filepath.Join(rootDir, ".gemini", "skills", skillName)
-			if _, aErr := os.Stat(filepath.Join(rootDir, ".antigravity")); aErr == nil {
-				destDir = filepath.Join(rootDir, ".antigravity", "skills", skillName)
+			destDir := filepath.Join(rootDir, ".gemini", "config", "skills", skillName)
+			if !isUserHome(rootDir) {
+				// Antigravity reads workspace skills from the canonical .agents store.
+				destDir = filepath.Join(rootDir, ".agents", "skills", skillName)
+			}
+			if filepath.Clean(destDir) == filepath.Clean(sourceDir) {
+				results = append(results, ProjectionResult{
+					Skill:   skillName,
+					Harness: string(target),
+					Path:    destDir,
+					Method:  "canonical",
+					Status:  "synced",
+				})
+				continue
 			}
 			results = append(results, projectSkillDirectory(skillName, string(target), sourceDir, destDir))
 
@@ -226,6 +241,10 @@ func SyncSkill(skillName, sourceDir, rootDir string, targets []Target) []Project
 			results = append(results, projectSkillDirectory(skillName, string(target), sourceDir, destDir))
 
 		case TargetCursor:
+			destDir := filepath.Join(rootDir, ".cursor", "skills", skillName)
+			results = append(results, projectSkillDirectory(skillName, string(target), sourceDir, destDir))
+
+		case TargetCursorRules:
 			rulesDir := filepath.Join(rootDir, ".cursor", "rules")
 			destFile := filepath.Join(rulesDir, skillName+".mdc")
 			if mkErr := os.MkdirAll(rulesDir, 0755); mkErr != nil {
@@ -257,40 +276,22 @@ func SyncSkill(skillName, sourceDir, rootDir string, targets []Target) []Project
 				Status:  "synced",
 			})
 
-		case TargetWindsurf:
-			rulesDir := filepath.Join(rootDir, ".windsurf", "rules")
-			destFile := filepath.Join(rulesDir, skillName+".md")
-			if mkErr := os.MkdirAll(rulesDir, 0755); mkErr != nil {
-				results = append(results, ProjectionResult{
-					Skill:   skillName,
-					Harness: string(target),
-					Path:    destFile,
-					Status:  "error",
-					Message: mkErr.Error(),
-				})
-				continue
-			}
-			if wErr := os.WriteFile(destFile, skillBytes, 0644); wErr != nil {
-				results = append(results, ProjectionResult{
-					Skill:   skillName,
-					Harness: string(target),
-					Path:    destFile,
-					Status:  "error",
-					Message: wErr.Error(),
-				})
-				continue
-			}
-			results = append(results, ProjectionResult{
-				Skill:   skillName,
-				Harness: string(target),
-				Path:    destFile,
-				Method:  "copy",
-				Status:  "synced",
-			})
+		case TargetDevin:
+			destDir := filepath.Join(rootDir, ".devin", "skills", skillName)
+			results = append(results, projectSkillDirectory(skillName, string(target), sourceDir, destDir))
 		}
 	}
 
 	return results
+}
+
+// isUserHome reports whether rootDir is the current user's home directory.
+func isUserHome(rootDir string) bool {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return false
+	}
+	return filepath.Clean(rootDir) == filepath.Clean(home)
 }
 
 func projectSkillDirectory(skillName, harnessName, sourceDir, destDir string) ProjectionResult {

@@ -42,6 +42,16 @@ func TestParseTargets(t *testing.T) {
 	if _, err := ParseTargets("invalid-harness", root); err == nil {
 		t.Errorf("expected error for invalid harness target")
 	}
+
+	legacy, err := ParseTargets("windsurf", root)
+	if err != nil || len(legacy) != 1 || legacy[0] != TargetDevin {
+		t.Errorf("windsurf should alias devin, got %v (err %v)", legacy, err)
+	}
+
+	rules, err := ParseTargets("cursor-rules", root)
+	if err != nil || len(rules) != 1 || rules[0] != TargetCursorRules {
+		t.Errorf("cursor-rules should be an opt-in target, got %v (err %v)", rules, err)
+	}
 }
 
 func TestSyncSkill_AllHarnesses(t *testing.T) {
@@ -70,28 +80,11 @@ Always run tests with race detector.
 		}
 	}
 
-	// Verify Cursor .mdc conversion
-	mdcBytes, err := os.ReadFile(filepath.Join(root, ".cursor", "rules", "demo-skill.mdc"))
-	if err != nil {
-		t.Fatalf("expected .cursor/rules/demo-skill.mdc to exist: %v", err)
-	}
-	if !strings.Contains(string(mdcBytes), "alwaysApply: false") || !strings.Contains(string(mdcBytes), "Demo multi-harness skill") {
-		t.Errorf("unexpected Cursor .mdc content:\n%s", string(mdcBytes))
-	}
-
-	// Verify Windsurf rule file
-	wsBytes, err := os.ReadFile(filepath.Join(root, ".windsurf", "rules", "demo-skill.md"))
-	if err != nil {
-		t.Fatalf("expected .windsurf/rules/demo-skill.md to exist: %v", err)
-	}
-	if !strings.Contains(string(wsBytes), "# Demo Skill") {
-		t.Errorf("unexpected Windsurf rule content:\n%s", string(wsBytes))
-	}
-
-	// Verify Claude, Gemini, OpenCode, and Sila projections
+	// Verify Cursor projects a skill, not a rule.
 	for _, dir := range []string{
 		filepath.Join(root, ".claude", "skills", "demo-skill", "SKILL.md"),
-		filepath.Join(root, ".gemini", "skills", "demo-skill", "SKILL.md"),
+		filepath.Join(root, ".cursor", "skills", "demo-skill", "SKILL.md"),
+		filepath.Join(root, ".devin", "skills", "demo-skill", "SKILL.md"),
 		filepath.Join(root, ".opencode", "skills", "demo-skill", "SKILL.md"),
 		filepath.Join(root, ".sila", "skills", "demo-skill", "SKILL.md"),
 	} {
@@ -103,6 +96,29 @@ Always run tests with race detector.
 		if !strings.Contains(string(data), "# Demo Skill") {
 			t.Errorf("expected # Demo Skill in %s", dir)
 		}
+	}
+
+	if _, err := os.Stat(filepath.Join(root, ".cursor", "rules", "demo-skill.mdc")); err == nil {
+		t.Errorf("cursor-rules projection must be opt-in, found .cursor/rules/demo-skill.mdc")
+	}
+	if _, err := os.Stat(filepath.Join(root, ".windsurf")); err == nil {
+		t.Errorf("legacy windsurf rules must not be written for the devin target")
+	}
+
+	// Antigravity reads workspace skills from the canonical store, so gemini
+	// resolves to .agents and must not duplicate the skill under .gemini.
+	if _, err := os.Stat(filepath.Join(root, ".gemini", "skills")); err == nil {
+		t.Errorf("gemini workspace projection should use .agents/skills, found .gemini/skills")
+	}
+	var geminiResult *ProjectionResult
+	for i := range results {
+		if results[i].Harness == "gemini" {
+			geminiResult = &results[i]
+			break
+		}
+	}
+	if geminiResult == nil || geminiResult.Method != "canonical" || filepath.Clean(geminiResult.Path) != filepath.Clean(srcDir) {
+		t.Errorf("expected gemini to resolve to the canonical store, got %+v", geminiResult)
 	}
 }
 
@@ -149,5 +165,51 @@ func TestReconcileHarnesses_BiDirectional(t *testing.T) {
 	}
 	if !strings.Contains(string(canonCursor), "name: cursor-authored") || !strings.Contains(string(canonCursor), "# Cursor Rule") {
 		t.Errorf("unexpected reverse-transpiled SKILL.md from .mdc:\n%s", string(canonCursor))
+	}
+}
+
+func TestSyncSkill_CursorRulesOptIn(t *testing.T) {
+	root := t.TempDir()
+	srcDir := filepath.Join(root, ".agents", "skills", "rule-skill")
+	if err := os.MkdirAll(srcDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	content := "---\nname: rule-skill\ndescription: Rule opt in\n---\n\n# Rule Skill\n\nBody.\n"
+	if err := os.WriteFile(filepath.Join(srcDir, "SKILL.md"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	results := SyncSkill("rule-skill", srcDir, root, []Target{TargetCursorRules})
+	if len(results) != 1 || results[0].Status != "synced" || results[0].Method != "mdc" {
+		t.Fatalf("unexpected cursor-rules result: %+v", results)
+	}
+	mdcBytes, err := os.ReadFile(filepath.Join(root, ".cursor", "rules", "rule-skill.mdc"))
+	if err != nil {
+		t.Fatalf("expected .cursor/rules/rule-skill.mdc: %v", err)
+	}
+	if !strings.Contains(string(mdcBytes), "alwaysApply: false") {
+		t.Errorf("unexpected mdc content:\n%s", string(mdcBytes))
+	}
+}
+
+func TestSyncSkill_GeminiGlobalPath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	srcDir := filepath.Join(home, ".agents", "skills", "global-skill")
+	if err := os.MkdirAll(srcDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	content := "---\nname: global-skill\ndescription: Global skill\n---\n\n# Global Skill\n"
+	if err := os.WriteFile(filepath.Join(srcDir, "SKILL.md"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	results := SyncSkill("global-skill", srcDir, home, []Target{TargetGemini})
+	if len(results) != 1 || results[0].Status != "synced" {
+		t.Fatalf("unexpected gemini global result: %+v", results)
+	}
+	want := filepath.Join(home, ".gemini", "config", "skills", "global-skill", "SKILL.md")
+	if _, err := os.Stat(want); err != nil {
+		t.Errorf("expected Antigravity global projection at %s: %v", want, err)
 	}
 }

@@ -104,8 +104,8 @@ func TestDojo_Init_Doctor_Sync_And_Sila(t *testing.T) {
 	if code != ExitSuccess {
 		t.Fatalf("Run(sila --target all) = %d; stderr: %s", code, stderr.String())
 	}
-	if _, err := os.Stat(filepath.Join(workDir, ".cursor", "rules", "my-custom-skill.mdc")); err != nil {
-		t.Errorf("expected .cursor/rules/my-custom-skill.mdc to be created by dojo sila: %v", err)
+	if _, err := os.Stat(filepath.Join(workDir, ".cursor", "skills", "my-custom-skill", "SKILL.md")); err != nil {
+		t.Errorf("expected .cursor/skills/my-custom-skill/SKILL.md to be created by dojo sila: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(workDir, ".sila", "skills", "my-custom-skill", "SKILL.md")); err != nil {
 		t.Errorf("expected .sila/skills/my-custom-skill/SKILL.md to be created by dojo sila: %v", err)
@@ -242,12 +242,12 @@ func TestDojo_WorkspaceInit_Profile_And_Completion(t *testing.T) {
 		t.Fatalf("Run(init --workspace) = %d; stderr: %s", code, stderr.String())
 	}
 
-	// Verify .agents/skills/local-agy-skill/SKILL.md was reconciled, .cursor/rules/local-agy-skill.mdc was projected, and skills.json was created
+	// Verify .agents/skills/local-agy-skill/SKILL.md was reconciled, .cursor/skills/local-agy-skill/SKILL.md was projected, and skills.json was created
 	if _, err := os.Stat(filepath.Join(workDir, ".agents", "skills", "local-agy-skill", "SKILL.md")); err != nil {
 		t.Errorf("expected reconciled .agents/skills/local-agy-skill/SKILL.md: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(workDir, ".cursor", "rules", "local-agy-skill.mdc")); err != nil {
-		t.Errorf("expected projected .cursor/rules/local-agy-skill.mdc: %v", err)
+	if _, err := os.Stat(filepath.Join(workDir, ".cursor", "skills", "local-agy-skill", "SKILL.md")); err != nil {
+		t.Errorf("expected projected .cursor/skills/local-agy-skill/SKILL.md: %v", err)
 	}
 	manifestBytes, err := os.ReadFile(filepath.Join(workDir, "skills.json"))
 	if err != nil {
@@ -274,8 +274,8 @@ func TestDojo_WorkspaceInit_Profile_And_Completion(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(applyDir, ".agents", "skills", "dojo", "SKILL.md")); err != nil {
 		t.Errorf("expected dojo to be installed by profile apply: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(applyDir, ".cursor", "rules", "dojo.mdc")); err != nil {
-		t.Errorf("expected dojo.mdc to be projected by profile apply: %v", err)
+	if _, err := os.Stat(filepath.Join(applyDir, ".cursor", "skills", "dojo", "SKILL.md")); err != nil {
+		t.Errorf("expected dojo to be projected to .cursor/skills by profile apply: %v", err)
 	}
 
 	// 4. Test `dojo completion` for bash, zsh, fish, powershell
@@ -506,8 +506,8 @@ func TestProfile_PersonalRegistry_LinkSyncPull(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(machineB, ".agents", "skills", "laptop-skill", "SKILL.md")); err != nil {
 		t.Fatalf("expected laptop-skill to be pulled into Machine B ~/.agents/skills: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(machineB, ".gemini", "skills", "laptop-skill", "SKILL.md")); err != nil {
-		t.Fatalf("expected laptop-skill to be projected into Machine B ~/.gemini/skills: %v", err)
+	if _, err := os.Stat(filepath.Join(machineB, ".gemini", "config", "skills", "laptop-skill", "SKILL.md")); err != nil {
+		t.Fatalf("expected laptop-skill to be projected into Machine B ~/.gemini/config/skills: %v", err)
 	}
 
 	// 5. Test `dojo profile unlink`
