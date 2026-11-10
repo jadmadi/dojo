@@ -7,9 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-11-10
+
+### Added
+- **Toc Refresh Flags**: `dojo toc -u/--update` refreshes the cached skill before listing sections, and `-f/--force` overrides digest verification. Both flags were documented but missing from the command.
+
 ### Changed
 - **Remaining Handler Refactor**: Split `InstallSkillContext`, `RunDoctor`, `runCatalogAdd`, `probeGitHubCatalogRef`, `RunList`, and `RunInit` into named helpers with unchanged flags, output, and exit codes.
 - **Deterministic Scaffolding**: `dojo init` now writes and reports generated files in a fixed order instead of map iteration order.
+- **Claim Audit**: README and `skills/dojo/SKILL.md` state measured behaviour, scope `--json`/`--raw` to reporting commands, separate `status` from `update`, and describe the published discovery index accurately.
+
+### Fixed
+- **Profile Pull Manifest**: `skills.json` no longer records a catalog URL where a catalog name belongs, so `dojo profile pull` installs listed skills instead of silently installing zero. Failed manifest installs now warn on stderr.
 
 ## [1.4.0] - 2026-11-10
 

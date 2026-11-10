@@ -2,6 +2,20 @@
 
 This backlog tracks roadmap items and completed releases for `dojo` (`github.com/jadmadi/dojo`).
 
+## Completed (`v1.4.1` — Verification Audit, Toc Refresh Flags & Manifest Fix)
+
+- [x] **Pre-Release Audit**: Verified build, race tests, and an end-to-end CLI smoke run (init, toc, load, list, status, doctor, sync, learn, profile export and pull, MCP schema, completion, installer, upgrade check) in an isolated HOME.
+- [x] **Toc Refresh Flags**: `dojo toc -u/--update` refreshes the cached skill before listing sections, and `-f/--force` overrides digest verification, matching the documented behaviour.
+- [x] **Manifest Catalog Fix**: `skills.json` no longer stores a catalog URL as if it were a registered catalog name, so `dojo profile pull` installs listed skills instead of silently skipping them. Failed manifest installs now warn on stderr.
+- [x] **Claim Audit**: README, `skills/dojo/SKILL.md`, and `project.jsonc` now state measured capabilities, separate `status` from `update`, and scope `--json`/`--raw` to reporting commands.
+
+## Completed (`v1.4.0` — Handler Refactor, Catalog Metadata & Answer-First README)
+
+- [x] **Handler Refactor**: Split `RunUpdate`, `runProfilePush`, `RunLearn`, `RunLoad`, `RunStatus`, `Run`, and the core readers, reconcilers, search scoring, and state history helpers into named steps with unchanged behaviour.
+- [x] **Catalog Metadata**: Added `project.jsonc` for the jadmadi.net project catalog.
+- [x] **README Restructure**: Answer-first README with current capabilities and the `skills` CLI install path.
+- [x] **Release Toolchain**: Release workflow now uses Go 1.26 to match `go.mod`.
+
 ## Completed (`v1.3.0` — Prebuilt Binary Releases, Pre-Push Secret Gate, Full MCP Continuity & Standalone Catalog)
 
 - [x] **Automated Multi-OS Release Binaries & Archive Self-Upgrade (`G-01`)**: Added `.github/workflows/release.yml` and `.github/workflows/ci.yml` and updated `dojo upgrade` (`internal/commands/upgrade.go`) to extract `.tar.gz` and `.zip` release archives across `linux`, `darwin`, and `windows` (`amd64` and `arm64`).

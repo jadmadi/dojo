@@ -13,7 +13,7 @@ metadata:
   category: agents
   tags: "dojo, gateway, mcp, multi-harness, antigravity, sila, profile, agy-vm, agent-skills, discovery, search, catalog, cli"
   author: Jad Madi (github.com/jadmadi)
-  version: "1.4.0"
+  version: "1.4.1"
   catalog: https://github.com/jadmadi/dojo
 ---
 
@@ -23,7 +23,9 @@ metadata:
 
 ## 1. Search & Section-Level Paging (`dojo find`, `dojo toc`, `dojo load`)
 
-Inspect a skill's Table of Contents first and stream only the relevant `#section` to save 70–90% of context tokens:
+Inspect a skill's Table of Contents first, then stream only the relevant
+`#section` so the agent reads what the task needs. `dojo toc` reports the byte
+size of every section before anything is loaded:
 
 ```bash
 # Search catalogs with hybrid BM25 + fuzzy matching

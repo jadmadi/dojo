@@ -2,7 +2,7 @@
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/jadmadi/dojo.svg)](https://pkg.go.dev/github.com/jadmadi/dojo)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/badge/release-v1.4.0-green.svg)](https://github.com/jadmadi/dojo/releases)
+[![Release](https://img.shields.io/badge/release-v1.4.1-green.svg)](https://github.com/jadmadi/dojo/releases)
 
 Dojo gives agents less to read and gives you one place to keep skills.
 
@@ -51,15 +51,16 @@ dojo load dojo#1-search-section-level-paging-dojo-find-dojo-toc-dojo-load
 dojo learn dojo --with-deps --target all
 ```
 
-Every command supports terminal output by default, `--json` for structured
-output, and `--raw` for tab-separated output.
+Reporting commands support terminal output by default, `--json` for structured
+output, and `--raw` for tab-separated output. Streaming and passthrough
+commands (`run`, `completion`, `mcp`) write their native output instead.
 
 ## Command reference
 
 | Command | Purpose | Primary flags |
 | :--- | :--- | :--- |
 | `dojo find <keywords...>` | Search names, descriptions, categories, and tags with hybrid BM25 and fuzzy matching | `-n, --limit <int>`, `--json`, `--raw` |
-| `dojo toc <skill>` | List Markdown headings, `#slugs`, line ranges, and byte sizes | `--local`, `-u, --update`, `--json`, `--raw` |
+| `dojo toc <skill>` | List Markdown headings, `#slugs`, line ranges, and byte sizes | `--local`, `-u, --update`, `-f, --force`, `--json`, `--raw` |
 | `dojo load <skill>[#section]` | Stream a skill, a single `#section`, or a bundled file | `-s, --section <slug>`, `--with-deps`, `-p <page>`, `--full` |
 | `dojo run <skill> <script>` | Run a bundled script (`uv`, `python3`, `bun`, `deno`, `node`, `bash`) | Trailing arguments pass through |
 | `dojo learn <skill>` | Install a skill to `.agents/skills/` or the global store | `-g, --global`, `--with-deps`, `-t, --target <harnesses>` |
@@ -70,7 +71,8 @@ output, and `--raw` for tab-separated output.
 | `dojo mcp` | Start the JSON-RPC 2.0 MCP server over stdio | `--print-schema` |
 | `dojo doctor` | Check frontmatter, byte budgets, and security rules | `--skills`, `--security`, `-g, --global`, `--json` |
 | `dojo list` / `dojo show` | List catalog skills by number or inspect metadata | `--json`, `--raw` |
-| `dojo status` / `dojo update` | Check installed skills for upstream drift and apply updates | `--all`, `-g, --global`, `-f, --force` |
+| `dojo status` | Show installed, forgotten, and used skills | `-g, --global`, `--json`, `--raw` |
+| `dojo update` | Check installed skills for upstream drift and apply updates | `--all`, `-g, --global`, `-y, --yes`, `-f, --force` |
 | `dojo catalog` | Manage federated skill catalogs | `list`, `add`, `remove`, `-n`, `-b`, `-p` |
 | `dojo upgrade` | Check GitHub Releases and upgrade in place | `-c, --check`, `-f, --force` |
 
@@ -198,8 +200,8 @@ dojo completion fish | source      # fish
 ## Trust and provenance
 
 - Catalogs are verified with SHA-256 digests before content is used.
-- Dojo implements the Agent Skills Discovery RFC v0.2.0 at
-  `/.well-known/agent-skills/index.json`.
+- Dojo publishes an Agent Skills Discovery RFC v0.2.0 index at
+  `.well-known/agent-skills/index.json` in this repository.
 - `dojo doctor --skills --security` validates frontmatter, checks single-page
   byte budgets, and scans for secrets, prompt-injection patterns, and `curl | sh`
   pipes. Security findings exit non-zero so CI can gate on them.

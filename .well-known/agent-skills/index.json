@@ -8,7 +8,7 @@
       "tags": ["dojo", "skills", "mcp", "antigravity", "sila", "sync", "profile", "toc", "doctor", "gateway"],
       "description": "The Agent Skills Training Ground, Native MCP Gateway, and Multi-Harness Continuity Engine. Discover skills with hybrid search, inspect section TOCs, JIT-load individual #sections, resolve skill dependency graphs, bi-directionally sync skills across Antigravity/Claude/Cursor/Windsurf/OpenCode/Sila, manage portable skills.json manifests, and audit skills with dojo doctor.",
       "url": "https://raw.githubusercontent.com/jadmadi/dojo/main/skills/dojo/SKILL.md",
-      "digest": "sha256:666b4238bd5892ebe5d1089484b8c55187ebe1a60cacdeb6ccec7b05e1cdaa5d"
+      "digest": "sha256:81ded796c6cd6627631f4351c6740f4e4d817f2804149b913666d11cec1a4618"
     }
   ]
 }
