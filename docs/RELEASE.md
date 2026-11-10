@@ -2,6 +2,12 @@
 
 Run every gate before a tag. A failed gate blocks the release.
 
+| Gate | Runs |
+|---|---|
+| Static, tests, version | CI, blocking |
+| Smoke, promise, changelog | Local, blocking |
+| Publish, post-release | Manual, blocking |
+
 ## 1. Static gate
 
 ```bash
