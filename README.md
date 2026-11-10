@@ -2,7 +2,7 @@
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/jadmadi/dojo.svg)](https://pkg.go.dev/github.com/jadmadi/dojo)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/badge/release-v1.5.0-green.svg)](https://github.com/jadmadi/dojo/releases)
+[![Release](https://img.shields.io/badge/release-v1.5.1-green.svg)](https://github.com/jadmadi/dojo/releases)
 
 Dojo gives agents less to read and gives you one place to keep skills.
 
@@ -82,6 +82,11 @@ An agent does not need a whole skill to follow one procedure. `dojo toc` shows
 what is inside a skill and how many bytes each part costs. `dojo load` then
 returns only the part that was asked for. The byte count is measured from the
 file itself, so you can see the trade before you load anything.
+
+The claim is enforced, not asserted. In the bundled benchmark
+(`docs/benchmarks/context-savings.json`), `TestContextSavings` enforces a 45
+percent ceiling on the largest leaf section as a share of the skill body, and
+fails if the published numbers drift from the corpus.
 
 ```bash
 # Inspect headings, #slugs, line ranges, and byte sizes

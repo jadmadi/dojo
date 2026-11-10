@@ -13,7 +13,7 @@ metadata:
   category: agents
   tags: "dojo, gateway, mcp, multi-harness, antigravity, sila, profile, agy-vm, agent-skills, discovery, search, catalog, cli"
   author: Jad Madi (github.com/jadmadi)
-  version: "1.5.0"
+  version: "1.5.1"
   catalog: https://github.com/jadmadi/dojo
 ---
 
@@ -25,7 +25,8 @@ metadata:
 
 Inspect a skill's Table of Contents first, then stream only the relevant
 `#section` so the agent reads what the task needs. `dojo toc` reports the byte
-size of every section before anything is loaded:
+size of every section before anything is loaded. A bundled benchmark enforces a
+45 percent ceiling on the largest leaf section as a share of the body:
 
 ```bash
 # Search catalogs with hybrid BM25 + fuzzy matching

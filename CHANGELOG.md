@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-11-10
+
+### Added
+- **Context Savings Benchmark**: A four-skill corpus under `internal/catalog/testdata/bench-skills`, a published `docs/benchmarks/context-savings.json`, and `TestContextSavings`, which enforces a 45 percent ceiling on the largest leaf section and fails when the published numbers drift.
+
+### Changed
+- **README Claim**: Section paging is now described as an enforced ceiling with published evidence instead of an unmeasured percentage.
+
 ## [1.5.0] - 2026-11-10
 
 ### Added
