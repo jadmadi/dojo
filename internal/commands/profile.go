@@ -656,6 +656,7 @@ type profilePushOptions struct {
 	all    bool
 	global bool
 	force  bool
+	dryRun bool
 	json   bool
 	raw    bool
 }
@@ -708,6 +709,11 @@ func (a *App) runProfilePush(args []string) int {
 		}
 	}
 
+	if opts.dryRun {
+		a.writeProfilePushDryRun(opts, targetSpec, items)
+		return ExitSuccess
+	}
+
 	workTree, isRemoteClone, cleanupTree, code := a.resolvePushWorkTree(targetSpec)
 	if code != ExitSuccess {
 		return code
@@ -740,6 +746,7 @@ func (a *App) parseProfilePushArgs(args []string) (profilePushOptions, []string,
 	fs.BoolVar(&opts.global, "global", false, "Search global scope first")
 	fs.BoolVar(&opts.global, "g", false, "Search global scope first (shorthand)")
 	fs.BoolVar(&opts.force, "force", false, "Skip pre-push security/secret scan")
+	fs.BoolVar(&opts.dryRun, "dry-run", false, "Report the packages that would be pushed without copying, committing, or pushing")
 	fs.BoolVar(&opts.force, "f", false, "Skip pre-push security/secret scan (shorthand)")
 	fs.BoolVar(&opts.json, "json", false, "Output in JSON format")
 	fs.BoolVar(&opts.raw, "raw", false, "Output in raw tab-separated format")
@@ -1064,6 +1071,34 @@ func (a *App) commitAndPushProfile(workTree string, pushedNames []string, target
 		return false, ExitGeneral
 	}
 	return false, ExitSuccess
+}
+
+// writeProfilePushDryRun reports the packages and target without writing.
+func (a *App) writeProfilePushDryRun(opts profilePushOptions, targetSpec string, items []locatedPushItem) {
+	names := make([]string, 0, len(items))
+	for _, it := range items {
+		names = append(names, it.name)
+	}
+	sort.Strings(names)
+
+	switch a.resolveMode(opts.json, opts.raw) {
+	case OutputModeJSON:
+		enc := json.NewEncoder(a.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(map[string]any{
+			"status":  "planned",
+			"target":  targetSpec,
+			"skills":  names,
+			"scanned": !opts.force,
+		})
+	case OutputModeRaw:
+		_, _ = fmt.Fprintf(a.Stdout, "planned\t%s\t%s\n", sanitizeTSVField(targetSpec), strings.Join(names, ","))
+	default:
+		_, _ = fmt.Fprintf(a.Stdout, "DRY RUN: would push %d skill(s) to %s\n", len(names), targetSpec)
+		for _, name := range names {
+			_, _ = fmt.Fprintf(a.Stdout, "  • %s\n", name)
+		}
+	}
 }
 
 func (a *App) writeProfilePushReport(opts profilePushOptions, targetSpec string, pushedNames []string, gitPushed bool) {

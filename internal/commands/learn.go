@@ -51,6 +51,7 @@ type learnOptions struct {
 	force    bool
 	load     bool
 	withDeps bool
+	dryRun   bool
 	target   string
 	json     bool
 	raw      bool
@@ -102,6 +103,11 @@ func (a *App) RunLearn(args []string) int {
 		}
 	}
 
+	if opts.dryRun {
+		a.writeLearnReport(a.planLearnItems(items, opts, scope), opts, scope)
+		return ExitSuccess
+	}
+
 	st := a.loadState()
 	installed := st.GetInstalledSkills(scope, wsDir)
 
@@ -132,6 +138,7 @@ func (a *App) parseLearnArgs(args []string) (learnOptions, []string, bool) {
 	fs.BoolVar(&opts.load, "load", false, "Output loaded skill markdown to stdout upon successful installation")
 	fs.BoolVar(&opts.load, "l", false, "Output loaded skill markdown (shorthand)")
 	fs.BoolVar(&opts.withDeps, "with-deps", false, "Install skill and all transitive dependencies in topological order")
+	fs.BoolVar(&opts.dryRun, "dry-run", false, "Resolve and report planned installs without writing files or state")
 	fs.StringVar(&opts.target, "target", "", "Also sync learned skill(s) to target harnesses (e.g. all, claude,cursor,gemini,windsurf,opencode,sila)")
 	fs.StringVar(&opts.target, "t", "", "Also sync learned skill(s) to target harnesses (shorthand)")
 	fs.BoolVar(&opts.json, "json", false, "Output in JSON format")
@@ -308,6 +315,26 @@ func learnItemVersion(item catalog.Item) string {
 	return ""
 }
 
+// planLearnItems reports what a real learn run would install.
+func (a *App) planLearnItems(items []catalog.Item, opts learnOptions, scope string) []installResult {
+	results := make([]installResult, 0, len(items))
+	for _, item := range items {
+		skillDir, err := resolveInstallDirectory(scope, item.Name)
+		if err != nil {
+			results = append(results, installResult{Name: item.Name, Status: "error", Message: err.Error()})
+			continue
+		}
+		results = append(results, installResult{
+			Name:    item.Name,
+			Status:  "planned",
+			Path:    skillDir,
+			Version: learnItemVersion(item),
+			Message: fmt.Sprintf("would install into %s scope", scope),
+		})
+	}
+	return results
+}
+
 // buildLearnedRecord derives install provenance from the catalog item.
 func buildLearnedRecord(item catalog.Item, scope, skillDir, version, digest string, files []string) state.SkillRecord {
 	origin := state.OriginCatalog
@@ -425,6 +452,8 @@ func writeLearnHuman(stdout, stderr interface{ Write([]byte) (int, error) }, res
 					_, _ = fmt.Fprintln(stdout)
 				}
 			}
+		case "planned":
+			_, _ = fmt.Fprintf(stdout, "• Would install %q into %s scope (%s)\n", r.Name, scope, r.Path)
 		case "already_installed":
 			_, _ = fmt.Fprintf(stderr, "• %s\n", r.Message)
 			for _, tp := range r.Targets {

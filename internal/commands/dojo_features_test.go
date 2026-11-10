@@ -164,6 +164,7 @@ func TestDojo_MCP_PrintSchema_And_Stdio(t *testing.T) {
 		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"dojo_toc","arguments":{"skill":"dojo"}}}`,
 		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"dojo_sync","arguments":{"target":"agents"}}}`,
 		`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"dojo_profile","arguments":{"action":"export"}}}`,
+		`{"jsonrpc":"2.0","id":6,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
 	}, "\n") + "\n"
 
 	stdout.Reset()
@@ -176,14 +177,20 @@ func TestDojo_MCP_PrintSchema_And_Stdio(t *testing.T) {
 		t.Fatalf("RunMCP stdio = %d; stderr: %s", code, stderr.String())
 	}
 	out := stdout.String()
-	if !strings.Contains(out, `"protocolVersion":"2024-11-05"`) {
-		t.Errorf("expected initialize response in MCP stdout, got:\n%s", out)
-	}
-	if !strings.Contains(out, `"dojo_load"`) || !strings.Contains(out, `"dojo_sync"`) || !strings.Contains(out, `"dojo_profile"`) {
-		t.Errorf("expected tools/list response in MCP stdout, got:\n%s", out)
-	}
-	if !strings.Contains(out, `#dojo-gateway`) {
-		t.Errorf("expected dojo_toc tool call result in MCP stdout, got:\n%s", out)
+	for _, want := range []string{
+		`"protocolVersion":"2025-06-18"`,
+		`"protocolVersion":"2024-11-05"`,
+		`"instructions"`,
+		`"dojo_load"`,
+		`"dojo_sync"`,
+		`"dojo_profile"`,
+		`"readOnlyHint":true`,
+		`"structuredContent"`,
+		`"slug":"dojo-gateway"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %s in MCP stdout, got:\n%s", want, out)
+		}
 	}
 }
 

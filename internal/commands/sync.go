@@ -40,8 +40,9 @@ func (a *App) RunSync(args []string) int {
 	fs.BoolVar(&jsonFlag, "json", false, "Output in JSON format")
 	fs.BoolVar(&rawFlag, "raw", false, "Output in raw tab-separated format")
 
-	var oneWayFlag bool
+	var oneWayFlag, dryRunFlag bool
 	fs.BoolVar(&oneWayFlag, "one-way", false, "Only project from .agents/skills without importing/reconciling edits from harness directories")
+	fs.BoolVar(&dryRunFlag, "dry-run", false, "Report planned projections without writing files")
 
 	posArgs, err := parseFlagsWithArgs(fs, args)
 	if err != nil {
@@ -71,12 +72,6 @@ func (a *App) RunSync(args []string) int {
 		targets = harness.DetectTargets(baseDir)
 	}
 
-	var allResults []harness.ProjectionResult
-	if !oneWayFlag {
-		reconciled := harness.ReconcileHarnesses(baseDir)
-		allResults = append(allResults, reconciled...)
-	}
-
 	discovered := harness.DiscoverInstalledSkillDirs(baseDir)
 	var skillNames []string
 	if len(posArgs) > 0 {
@@ -96,6 +91,17 @@ func (a *App) RunSync(args []string) int {
 		for name := range discovered {
 			skillNames = append(skillNames, name)
 		}
+	}
+
+	if dryRunFlag {
+		planned := planSyncResults(skillNames, targets)
+		a.writeSyncResults(planned, mode, targets, skillNames, true)
+		return ExitSuccess
+	}
+
+	var allResults []harness.ProjectionResult
+	if !oneWayFlag {
+		allResults = append(allResults, harness.ReconcileHarnesses(baseDir)...)
 	}
 
 	if len(skillNames) == 0 && len(allResults) == 0 {
@@ -120,13 +126,38 @@ func (a *App) RunSync(args []string) int {
 		}
 	}
 
+	a.writeSyncResults(allResults, mode, targets, skillNames, false)
+
+	if hasError {
+		return ExitGeneral
+	}
+	return ExitSuccess
+}
+
+// planSyncResults lists the projections a real sync would write.
+func planSyncResults(skillNames []string, targets []harness.Target) []harness.ProjectionResult {
+	var planned []harness.ProjectionResult
+	for _, name := range skillNames {
+		for _, t := range targets {
+			planned = append(planned, harness.ProjectionResult{
+				Skill:   name,
+				Harness: string(t),
+				Method:  "planned",
+				Status:  "planned",
+			})
+		}
+	}
+	return planned
+}
+
+func (a *App) writeSyncResults(results []harness.ProjectionResult, mode OutputMode, targets []harness.Target, skillNames []string, dryRun bool) {
 	switch mode {
 	case OutputModeJSON:
 		enc := json.NewEncoder(a.Stdout)
 		enc.SetIndent("", "  ")
-		_ = enc.Encode(allResults)
+		_ = enc.Encode(results)
 	case OutputModeRaw:
-		for _, r := range allResults {
+		for _, r := range results {
 			_, _ = fmt.Fprintf(a.Stdout, "%s\t%s\t%s\t%s\t%s\n",
 				sanitizeTSVField(r.Status),
 				sanitizeTSVField(r.Skill),
@@ -140,18 +171,20 @@ func (a *App) RunSync(args []string) int {
 		for _, t := range targets {
 			targetLabels = append(targetLabels, string(t))
 		}
-		_, _ = fmt.Fprintf(a.Stdout, "MULTI-HARNESS CONTINUITY SYNC (%d skills -> [%s]):\n\n", len(skillNames), strings.Join(targetLabels, ", "))
-		for _, r := range allResults {
-			if r.Status == "synced" {
+		header := "MULTI-HARNESS CONTINUITY SYNC"
+		if dryRun {
+			header = "DRY RUN: MULTI-HARNESS CONTINUITY SYNC"
+		}
+		_, _ = fmt.Fprintf(a.Stdout, "%s (%d skills -> [%s]):\n\n", header, len(skillNames), strings.Join(targetLabels, ", "))
+		for _, r := range results {
+			switch {
+			case r.Status == "synced":
 				_, _ = fmt.Fprintf(a.Stdout, "  ✓ %-18s -> %-10s (%s: %s)\n", r.Skill, r.Harness, r.Method, r.Path)
-			} else {
+			case r.Status == "planned":
+				_, _ = fmt.Fprintf(a.Stdout, "  • %-18s -> %-10s (planned)\n", r.Skill, r.Harness)
+			default:
 				_, _ = fmt.Fprintf(a.Stderr, "  ✗ %-18s -> %-10s (%s)\n", r.Skill, r.Harness, r.Message)
 			}
 		}
 	}
-
-	if hasError {
-		return ExitGeneral
-	}
-	return ExitSuccess
 }
