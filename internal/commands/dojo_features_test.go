@@ -558,6 +558,3 @@ func TestProfilePush_BlocksSecretTokensAndUpgradeExtractsArchive(t *testing.T) {
 		t.Errorf("unexpected extracted binary content: %q", string(extracted))
 	}
 }
-
-
-

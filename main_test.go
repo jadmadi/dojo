@@ -142,4 +142,3 @@ func TestRun_CLI_RunBranding(t *testing.T) {
 		t.Errorf("expected 'dojo run <skill> <script>' in error, got: %s", errStr)
 	}
 }
-

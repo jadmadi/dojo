@@ -42,37 +42,37 @@ const (
 
 // Item represents a discoverable Agent Skill in the catalog.
 type Item struct {
-	ID                 string            `json:"id" yaml:"id"`
-	Name               string            `json:"name" yaml:"name"`
-	Type               ItemType          `json:"type,omitempty" yaml:"type,omitempty"`
-	Title              string            `json:"title,omitempty" yaml:"title,omitempty"`
-	Description        string            `json:"description" yaml:"description"`
-	Category           string            `json:"category,omitempty" yaml:"category,omitempty"`
-	Tags               []string          `json:"tags,omitempty" yaml:"tags,omitempty"`
-	Author             string            `json:"author,omitempty" yaml:"author,omitempty"`
-	Version            string            `json:"version,omitempty" yaml:"version,omitempty"`
-	License            string            `json:"license,omitempty" yaml:"license,omitempty"`
-	URL                string            `json:"url,omitempty" yaml:"url,omitempty"`
-	Entrypoint         string            `json:"entrypoint,omitempty" yaml:"entrypoint,omitempty"`
-	RelativePath       string            `json:"relativePath,omitempty" yaml:"relativePath,omitempty"`
-	Path               string            `json:"path,omitempty" yaml:"path,omitempty"`
-	Digest             string            `json:"digest,omitempty" yaml:"digest,omitempty"`
-	Sha256             string            `json:"sha256,omitempty" yaml:"sha256,omitempty"`
-	Source             string            `json:"source,omitempty" yaml:"source,omitempty"` // "remote", "workspace", "global", "catalog"
-	Status             string            `json:"status,omitempty" yaml:"status,omitempty"` // "installed", "online"
-	InstallCmd         string            `json:"install_command,omitempty" yaml:"install_command,omitempty"`
-	InstallCommand     string            `json:"installCommand,omitempty" yaml:"installCommand,omitempty"`
-	NpxInstallCommand  string            `json:"npxInstallCommand,omitempty" yaml:"npxInstallCommand,omitempty"`
-	DojoLoadCommand    string            `json:"dojoLoadCommand,omitempty" yaml:"dojoLoadCommand,omitempty"`
-	DojoLearnCommand   string            `json:"dojoLearnCommand,omitempty" yaml:"dojoLearnCommand,omitempty"`
-	FreshnessScore     *int              `json:"freshnessScore,omitempty" yaml:"freshnessScore,omitempty"`
-	FreshnessTier      string            `json:"freshnessTier,omitempty" yaml:"freshnessTier,omitempty"`
-	FreshnessEmoji     string            `json:"freshnessEmoji,omitempty" yaml:"freshnessEmoji,omitempty"`
-	LastCommitAt       string            `json:"lastCommitAt,omitempty" yaml:"lastCommitAt,omitempty"`
-	AllowedTools       string            `json:"allowed_tools,omitempty" yaml:"allowed-tools,omitempty"`
-	Dependencies       []string          `json:"dependencies,omitempty" yaml:"dependencies,omitempty"`
-	Body               string            `json:"body,omitempty" yaml:"body,omitempty"`
-	Metadata           map[string]string `json:"metadata,omitempty" yaml:"metadata,omitempty"`
+	ID                string            `json:"id" yaml:"id"`
+	Name              string            `json:"name" yaml:"name"`
+	Type              ItemType          `json:"type,omitempty" yaml:"type,omitempty"`
+	Title             string            `json:"title,omitempty" yaml:"title,omitempty"`
+	Description       string            `json:"description" yaml:"description"`
+	Category          string            `json:"category,omitempty" yaml:"category,omitempty"`
+	Tags              []string          `json:"tags,omitempty" yaml:"tags,omitempty"`
+	Author            string            `json:"author,omitempty" yaml:"author,omitempty"`
+	Version           string            `json:"version,omitempty" yaml:"version,omitempty"`
+	License           string            `json:"license,omitempty" yaml:"license,omitempty"`
+	URL               string            `json:"url,omitempty" yaml:"url,omitempty"`
+	Entrypoint        string            `json:"entrypoint,omitempty" yaml:"entrypoint,omitempty"`
+	RelativePath      string            `json:"relativePath,omitempty" yaml:"relativePath,omitempty"`
+	Path              string            `json:"path,omitempty" yaml:"path,omitempty"`
+	Digest            string            `json:"digest,omitempty" yaml:"digest,omitempty"`
+	Sha256            string            `json:"sha256,omitempty" yaml:"sha256,omitempty"`
+	Source            string            `json:"source,omitempty" yaml:"source,omitempty"` // "remote", "workspace", "global", "catalog"
+	Status            string            `json:"status,omitempty" yaml:"status,omitempty"` // "installed", "online"
+	InstallCmd        string            `json:"install_command,omitempty" yaml:"install_command,omitempty"`
+	InstallCommand    string            `json:"installCommand,omitempty" yaml:"installCommand,omitempty"`
+	NpxInstallCommand string            `json:"npxInstallCommand,omitempty" yaml:"npxInstallCommand,omitempty"`
+	DojoLoadCommand   string            `json:"dojoLoadCommand,omitempty" yaml:"dojoLoadCommand,omitempty"`
+	DojoLearnCommand  string            `json:"dojoLearnCommand,omitempty" yaml:"dojoLearnCommand,omitempty"`
+	FreshnessScore    *int              `json:"freshnessScore,omitempty" yaml:"freshnessScore,omitempty"`
+	FreshnessTier     string            `json:"freshnessTier,omitempty" yaml:"freshnessTier,omitempty"`
+	FreshnessEmoji    string            `json:"freshnessEmoji,omitempty" yaml:"freshnessEmoji,omitempty"`
+	LastCommitAt      string            `json:"lastCommitAt,omitempty" yaml:"lastCommitAt,omitempty"`
+	AllowedTools      string            `json:"allowed_tools,omitempty" yaml:"allowed-tools,omitempty"`
+	Dependencies      []string          `json:"dependencies,omitempty" yaml:"dependencies,omitempty"`
+	Body              string            `json:"body,omitempty" yaml:"body,omitempty"`
+	Metadata          map[string]string `json:"metadata,omitempty" yaml:"metadata,omitempty"`
 }
 
 // EffectiveDigest returns the item's Digest, falling back to Sha256 if Digest is empty.

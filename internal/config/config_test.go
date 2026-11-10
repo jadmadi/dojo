@@ -203,4 +203,3 @@ func TestConfig_ProfileRepo(t *testing.T) {
 		t.Errorf("expected DOJO_PROFILE_REPO env override, got %q", r)
 	}
 }
-

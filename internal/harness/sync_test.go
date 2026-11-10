@@ -151,4 +151,3 @@ func TestReconcileHarnesses_BiDirectional(t *testing.T) {
 		t.Errorf("unexpected reverse-transpiled SKILL.md from .mdc:\n%s", string(canonCursor))
 	}
 }
-
