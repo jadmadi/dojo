@@ -19,6 +19,10 @@ Thank you for your interest in contributing to **Dojo**!
 
 Dojo adopts the standard [Contributor Covenant (v2.1)](https://www.contributor-covenant.org/version/2/1/code_of_conduct/) to foster an open, welcoming, diverse, inclusive, and healthy community.
 
+## Releasing
+
+Follow [docs/RELEASE.md](docs/RELEASE.md). Every gate must pass before a tag.
+
 ## License
 
 By contributing to Dojo, you agree that your contributions will be licensed under the [Apache License, Version 2.0](LICENSE).

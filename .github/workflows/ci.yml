@@ -20,10 +20,34 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25.x'
+          go-version: '1.26.x'
+
+      - name: Check formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "Unformatted files:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Check version consistency
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/.*DefaultVersion = "\(.*\)"/\1/p' internal/version/version.go)
+          badge=$(sed -n 's/.*release-v\([0-9.]*\)-green.*/\1/p' README.md | head -1)
+          project=$(sed -n 's/.*"version": "\([0-9.]*\)".*/\1/p' project.jsonc | head -1)
+          skill=$(sed -n 's/^  version: "\([0-9.]*\)"/\1/p' skills/dojo/SKILL.md | head -1)
+          printf 'version=%s badge=%s project=%s skill=%s\n' "$version" "$badge" "$project" "$skill"
+          test "$version" = "$badge"
+          test "$version" = "$project"
+          test "$version" = "$skill"
 
       - name: Run unit tests
-        run: go test -v ./...
+        run: go test -race ./...
 
       - name: Audit skills and security with dojo doctor
         run: go run ./cmd/dojo doctor --skills --security
