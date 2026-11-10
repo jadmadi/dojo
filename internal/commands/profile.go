@@ -398,15 +398,7 @@ func (a *App) applySkillsManifest(manifest *profile.SkillsManifest, globalFlag b
 		if strings.TrimSpace(entry.Name) == "" {
 			continue
 		}
-		spec := entry.Name
-		if entry.Repo != "" {
-			spec = entry.Repo
-			if !strings.Contains(spec, "/") {
-				spec = entry.Name
-			}
-		} else if entry.Catalog != "" && entry.Catalog != "default" {
-			spec = fmt.Sprintf("%s@%s", entry.Name, entry.Catalog)
-		}
+		spec := profileEntrySpec(entry)
 
 		// If skill already exists locally in .agents/skills/<name>/SKILL.md, no network learn is required
 		canPath := filepath.Join(rootDir, ".agents", "skills", entry.Name, "SKILL.md")
@@ -437,9 +429,8 @@ func (a *App) applySkillsManifest(manifest *profile.SkillsManifest, globalFlag b
 		subApp := *a
 		subApp.Stdout = &lOut
 		subApp.Stderr = &lErr
-		if code := subApp.RunLearn(learnArgs); code == ExitSuccess {
-			installed = append(installed, entry.Name)
-		} else if manifest.SourceRepo != "" && entry.Repo == "" {
+		learned := subApp.RunLearn(learnArgs) == ExitSuccess
+		if !learned && isGitHubRepoSlug(manifest.SourceRepo) && entry.Repo == "" {
 			// Fallback: skill may be hosted directly inside the profile repository itself (e.g. jadmadi/agy-vm/skills/<name>)
 			repoSpec := fmt.Sprintf("github:%s/skills/%s", manifest.SourceRepo, entry.Name)
 			if manifest.SourceRef != "" && manifest.SourceRef != "main" {
@@ -451,10 +442,13 @@ func (a *App) applySkillsManifest(manifest *profile.SkillsManifest, globalFlag b
 			}
 			lOut.Reset()
 			lErr.Reset()
-			if fCode := subApp.RunLearn(fallbackArgs); fCode == ExitSuccess {
-				installed = append(installed, entry.Name)
-			}
+			learned = subApp.RunLearn(fallbackArgs) == ExitSuccess
 		}
+		if learned {
+			installed = append(installed, entry.Name)
+			continue
+		}
+		_, _ = fmt.Fprintf(a.Stderr, "warning: could not install %q from profile manifest%s\n", entry.Name, bufferHint(lErr.String()))
 	}
 
 	// 4. Reconcile & sync across target harnesses
@@ -471,6 +465,40 @@ func (a *App) applySkillsManifest(manifest *profile.SkillsManifest, globalFlag b
 	}
 
 	return installed, projections, nil
+}
+
+// profileEntrySpec builds a learn spec for a manifest entry. A catalog URL is
+// not a registered catalog name, so the name alone is used instead.
+func profileEntrySpec(entry profile.SkillEntry) string {
+	if entry.Repo != "" {
+		if !strings.Contains(entry.Repo, "/") {
+			return entry.Name
+		}
+		return entry.Repo
+	}
+	if entry.Catalog != "" && entry.Catalog != "default" && !strings.Contains(entry.Catalog, "://") {
+		return fmt.Sprintf("%s@%s", entry.Name, entry.Catalog)
+	}
+	return entry.Name
+}
+
+// isGitHubRepoSlug reports whether a manifest source is an owner/repo slug
+// rather than a local directory path.
+func isGitHubRepoSlug(source string) bool {
+	return source != "" &&
+		!strings.Contains(source, ":") &&
+		!strings.HasPrefix(source, "/") &&
+		strings.Count(source, "/") == 1
+}
+
+// bufferHint returns the last non-empty line of a captured stderr buffer.
+func bufferHint(s string) string {
+	lines := strings.Split(strings.TrimSpace(s), "\n")
+	last := strings.TrimSpace(lines[len(lines)-1])
+	if last == "" {
+		return ""
+	}
+	return ": " + last
 }
 
 func (a *App) runProfileSync(args []string) int {

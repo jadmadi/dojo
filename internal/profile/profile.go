@@ -110,7 +110,7 @@ func BuildManifest(st *state.State, scope, rootDir string, targets []harness.Tar
 				}
 				entriesByName[rec.Name] = SkillEntry{
 					Name:    rec.Name,
-					Catalog: rec.Catalog,
+					Catalog: manifestCatalogName(rec.Catalog),
 					Repo:    rec.Repo,
 					Ref:     rec.Ref,
 					Version: rec.Version,
@@ -149,6 +149,16 @@ func BuildManifest(st *state.State, scope, rootDir string, targets []harness.Tar
 		m.Catalogs = nil
 	}
 	return m
+}
+
+// manifestCatalogName keeps only registered catalog names in a manifest, so a
+// URL source does not become an unresolvable "name@https://..." spec.
+func manifestCatalogName(catalogName string) string {
+	name := strings.TrimSpace(catalogName)
+	if name == "" || name == "default" || strings.Contains(name, "://") {
+		return ""
+	}
+	return name
 }
 
 // SaveManifest writes a SkillsManifest as formatted JSON to path.

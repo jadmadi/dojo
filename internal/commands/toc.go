@@ -31,9 +31,13 @@ import (
 func (a *App) RunTOC(args []string) int {
 	fs := flag.NewFlagSet("toc", flag.ContinueOnError)
 	fs.SetOutput(a.Stderr)
-	var localFlag, jsonFlag, rawFlag bool
+	var localFlag, updateFlag, forceFlag, jsonFlag, rawFlag bool
 
 	fs.BoolVar(&localFlag, "local", false, "Use locally cached or installed copy without checking remote upstream")
+	fs.BoolVar(&updateFlag, "update", false, "Check remote upstream and update cached copy before listing sections")
+	fs.BoolVar(&updateFlag, "u", false, "Check remote upstream and update cached copy before listing sections (shorthand)")
+	fs.BoolVar(&forceFlag, "force", false, "Force loading/updating even if digest verification fails")
+	fs.BoolVar(&forceFlag, "f", false, "Force loading/updating even if digest verification fails (shorthand)")
 	fs.BoolVar(&jsonFlag, "json", false, "Output in JSON format")
 	fs.BoolVar(&rawFlag, "raw", false, "Output in raw tab-separated format")
 
@@ -82,7 +86,7 @@ func (a *App) RunTOC(args []string) int {
 			return MapErrorToExitCode(err)
 		}
 	} else {
-		rawContent, err := a.loadItemContentWithOpts(item, localFlag, false, false)
+		rawContent, err := a.loadItemContentWithOpts(item, localFlag, updateFlag, forceFlag)
 		if err != nil {
 			_, _ = fmt.Fprintf(a.Stderr, "error: loading skill %q: %v\n", item.Name, err)
 			return MapErrorToExitCode(err)
