@@ -2,7 +2,7 @@
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/jadmadi/dojo.svg)](https://pkg.go.dev/github.com/jadmadi/dojo)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/badge/release-v1.4.1-green.svg)](https://github.com/jadmadi/dojo/releases)
+[![Release](https://img.shields.io/badge/release-v1.5.0-green.svg)](https://github.com/jadmadi/dojo/releases)
 
 Dojo gives agents less to read and gives you one place to keep skills.
 
@@ -175,6 +175,14 @@ overrides the gate when you have reviewed the finding.
 `dojo mcp` starts a zero-dependency JSON-RPC 2.0 server over stdio and exposes
 `dojo_find`, `dojo_toc`, `dojo_load`, `dojo_run`, `dojo_learn`, `dojo_doctor`,
 `dojo_sync`, and `dojo_profile`.
+
+Tool results return JSON text plus `structuredContent` that matches each
+tool's `outputSchema`. Every tool carries MCP annotations, so a client can
+auto-approve `find`, `toc`, `load`, and `doctor` while prompting on `run`,
+`learn`, `sync`, and `profile`. The server negotiates protocol version
+`2025-06-18` or an older version the client requests, and sends usage
+instructions once at initialization. `dojo_learn`, `dojo_sync`, and
+`dojo_profile push` accept `dry_run` to preview work without writing.
 
 ```json
 {

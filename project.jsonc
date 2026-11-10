@@ -1,7 +1,7 @@
 {
   "$schema": "https://jadmadi.net/schemas/project.schema.json",
   // Timestamp of the last metadata revision (Format: YY-MM-DD-HH-MM)
-  "lastEdit": "26-11-10-09-49",
+  "lastEdit": "26-11-10-13-24",
 
   // Unique identifier matching the project URL slug on jadmadi.net
   "id": "dojo",
@@ -13,7 +13,7 @@
   "tagline": "Section-level Agent Skills CLI and MCP server that streams only the context an agent needs",
 
   // Semantic version
-  "version": "1.4.1",
+  "version": "1.5.0",
 
   // 2-3 sentence executive summary explaining what it does, why it exists, and zero-bullshit proof
   "summary": "A static Go CLI and stdio MCP server for discovering, streaming, auditing, and synchronizing Agent Skills. Agents inspect a skill's table of contents, load one section instead of the whole file, resolve dependencies in topological order, and project skills across six coding harnesses. Catalogs are verified with SHA-256 digests before anything is installed.",
@@ -76,7 +76,7 @@
     "Bi-directional sync across Antigravity, Claude Code, Cursor, Windsurf, OpenCode, and Sila",
     "Personal Skills Registry that synchronizes skills.json between a laptop and a cloud VM",
     "Cloudflare Agent Skills Discovery RFC v0.2.0 support with SHA-256 digest verification",
-    "Native stdio MCP server exposing 8 tools: find, toc, load, run, learn, doctor, sync, and profile",
+    "Native stdio MCP server exposing 8 tools with structured output, annotations, and dry-run previews: find, toc, load, run, learn, doctor, sync, and profile",
     "Secret and prompt-injection scanning before a profile push",
     "Prebuilt binaries for Linux, macOS, and Windows on amd64 and arm64"
   ],

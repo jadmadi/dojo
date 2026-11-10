@@ -2,6 +2,13 @@
 
 This backlog tracks roadmap items and completed releases for `dojo` (`github.com/jadmadi/dojo`).
 
+## Completed (`v1.5.0` — Agent-First MCP Surface & Dry-Run Previews)
+
+- [x] **Structured MCP Results**: every tool returns JSON text plus `structuredContent` matching a published `outputSchema`; `dojo_run` keeps raw script output.
+- [x] **Tool Annotations**: `readOnlyHint`, `destructiveHint`, `idempotentHint`, and `openWorldHint` on all 8 tools, so clients can auto-approve reads and prompt on writes.
+- [x] **Protocol Negotiation & Instructions**: initialize negotiates `2025-06-18`, `2025-03-26`, or `2024-11-05` and sends usage instructions once.
+- [x] **Dry-Run Previews**: `dojo learn`, `dojo sync`, and `dojo profile push` accept `--dry-run`, exposed as `dry_run` over MCP, and write nothing.
+
 ## Completed (`v1.4.1` — Verification Audit, Toc Refresh Flags & Manifest Fix)
 
 - [x] **Pre-Release Audit**: Verified build, race tests, and an end-to-end CLI smoke run (init, toc, load, list, status, doctor, sync, learn, profile export and pull, MCP schema, completion, installer, upgrade check) in an isolated HOME.

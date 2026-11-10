@@ -13,7 +13,7 @@ metadata:
   category: agents
   tags: "dojo, gateway, mcp, multi-harness, antigravity, sila, profile, agy-vm, agent-skills, discovery, search, catalog, cli"
   author: Jad Madi (github.com/jadmadi)
-  version: "1.4.1"
+  version: "1.5.0"
   catalog: https://github.com/jadmadi/dojo
 ---
 
@@ -90,6 +90,9 @@ What `dojo profile sync` and `dojo profile push` search and package automaticall
 # Start JSON-RPC 2.0 MCP server on stdio or inspect tool schema
 dojo mcp
 dojo mcp --print-schema
+# Tool results include JSON text and structuredContent. Read-only tools carry
+# readOnlyHint; run, learn, sync, and profile carry destructive or open-world
+# hints. learn, sync, and profile push accept --dry-run for a no-write preview.
 
 # Enable dynamic shell tab-completion (skills, #sections, flags, targets)
 source <(dojo completion bash)

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-11-10
+
+### Added
+- **Agent-First MCP Surface**: every tool now returns JSON text plus `structuredContent` matching a published `outputSchema`, carries MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`), and the server sends usage instructions at initialization. Protocol version is negotiated from `2025-06-18`, `2025-03-26`, or `2024-11-05` instead of being hard-coded.
+- **Dry-Run Previews**: `dojo learn --dry-run`, `dojo sync --dry-run`, and `dojo profile push --dry-run` report planned work without writing files, and the MCP tools expose the same `dry_run` argument.
+
+### Changed
+- **MCP Tool Output**: tool results are JSON for `find`, `toc`, `load`, `doctor`, `learn`, `sync`, and `profile`, so agents no longer parse padded terminal tables. `dojo_run` keeps raw script output.
+
 ## [1.4.1] - 2026-11-10
 
 ### Added
